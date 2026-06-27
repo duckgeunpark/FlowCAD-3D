@@ -53,7 +53,7 @@ export function Viewer() {
         </Bounds>
       ) : (
         <Html center>
-          <div className="text-gray-400 text-sm">데이터를 생성하면 3D 모델이 표시됩니다.</div>
+          <div className="text-gray-400 text-sm width-[300px]">데이터를 생성하면 3D 모델이 표시됩니다.</div>
         </Html>
       )}
     </Canvas>

@@ -2,7 +2,6 @@
 
 스마트 배관·덕트 3D 자동 생성 및 인터랙티브 도면 솔루션. 설계 데이터(엑셀/CSV/웹 표)를
 **1:1 실척 3D 모델**과 메타데이터(도면/피팅/조인트 번호)로 변환합니다.
-([master_implementation_plan.md](./master_implementation_plan.md) 기반)
 
 이 저장소는 **Phase 1 MVP 수직 슬라이스**를 구현합니다:
 `표 입력 → 백엔드 지오메트리 엔진 → Three.js 3D 뷰어 → BOM 쌍방향 인터랙션`.

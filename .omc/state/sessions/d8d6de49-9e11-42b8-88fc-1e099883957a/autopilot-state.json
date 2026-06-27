@@ -1,0 +1,11 @@
+{
+  "active": true,
+  "started_at": "2026-06-27T06:44:34.359Z",
+  "original_prompt": "/oh-my-claudecode:autopilot Plan_v2.md 이거대로 구현할ㄱ야",
+  "session_id": "d8d6de49-9e11-42b8-88fc-1e099883957a",
+  "project_path": "C:\\Users\\USER\\Project\\CD\\FlowCAD 3D",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "awaiting_confirmation_set_at": "2026-06-27T06:44:34.359Z",
+  "last_checked_at": "2026-06-27T06:44:34.359Z"
+}
