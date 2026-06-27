@@ -51,10 +51,17 @@ class GeometryFactory:
             joints=[],
         )
 
-    def build_segment(self, run: Run, a: Node, b: Node, eid: str) -> SceneElement:
-        """A straight run between two same-section nodes."""
+    def build_segment(self, run: Run, a: Node, b: Node, eid: str, trim: bool = True) -> SceneElement:
+        """A straight run between two same-section nodes.
+
+        ``trim`` (legacy default) pulls the endpoints back to fitting connection
+        faces because legacy nodes are fitting *centerlines*. The Plan_v2 piece
+        model already supplies real face-to-face endpoints (fittings occupy their
+        own space), so it passes ``trim=False`` to keep each straight at its
+        authored material length.
+        """
         section = self._section_for(run, a)
-        start, end = _trimmed_segment_points(run, a, b)
+        start, end = _trimmed_segment_points(run, a, b) if trim else (a.position, b.position)
         trimmed_length = (end - start).length()
         if section.shape is DuctShape.ROUND:
             kind = (
@@ -338,16 +345,28 @@ def _joint_base(node: Node) -> str:
 
 def _joint_no(node: Node, role: str) -> str:
     jnos = node.metadata.joint_nos
-    if jnos:
+    # Use the explicit list only when it actually distinguishes ports (>= 2
+    # entries). A single value is just ``joint_no`` echoed into a 1-element list
+    # (see _parse_joint_nos) and must be treated as a base to be suffixed below —
+    # otherwise a fitting's in/out/branch all collapse to the same number.
+    if len(jnos) >= 2:
         if role in ("start", "in"):
             return jnos[0]
         if role in ("end", "out"):
-            return jnos[1] if len(jnos) > 1 else jnos[0]
+            return jnos[1]
         if role == "branch":
             return jnos[2] if len(jnos) > 2 else jnos[-1]
         return jnos[0]
-    # Fallback to base without appending unnecessary IN/OUT suffixes
-    return _joint_base(node)
+    # No explicit per-port list: at a fitting node, suffix the base with the
+    # connection side so the two ports meeting there share ONE number (e.g. a
+    # segment's ``end`` and the elbow's ``in`` both become ``J-002-IN``). This
+    # is what SceneBuilder._resolve_open_joints keys on to detect open ports.
+    base = _joint_base(node)
+    if node.fitting is None:
+        return base
+    suffix_by_role = {"start": "OUT", "end": "IN", "in": "IN", "out": "OUT", "branch": "BR"}
+    suffix = suffix_by_role.get(role, role.upper())
+    return f"{base}-{suffix}"
 
 
 def _joint_port(

@@ -53,6 +53,23 @@ class BomRow:
 
 
 @dataclass(slots=True)
+class Diagnostic:
+    """A structured validation message tied to an input row (Plan_v2 §사용성).
+
+    Unlike the 3D ``ERROR_MARKER`` element (which only the viewer renders), a
+    diagnostic carries the offending ``seq`` so the input table can highlight the
+    exact row and the UI can list the *reason* and a *recommended fix*.
+    """
+
+    level: str  # "error" | "warning" | "info"
+    code: str  # machine-stable code, e.g. "DIAMETER_MISMATCH"
+    seq: str  # the offending row's seq ("" if not row-specific)
+    message: str  # human-readable reason (Korean)
+    suggestion: str = ""  # recommended correction, if any
+    position: list[float] | None = None  # 3D anchor, when applicable
+
+
+@dataclass(slots=True)
 class SceneDocument:
     """Top-level payload returned to the client."""
 
@@ -61,3 +78,4 @@ class SceneDocument:
     bounds_max: Vec3 = field(default_factory=Vec3)
     elements: list[SceneElement] = field(default_factory=list)
     bom: list[BomRow] = field(default_factory=list)
+    diagnostics: list[Diagnostic] = field(default_factory=list)

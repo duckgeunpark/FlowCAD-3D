@@ -325,15 +325,18 @@ function DuctElbow(p: ElementVisualProps) {
   const outDir = useMemo(() => toThreeDirection(params.outDirection ?? [1, 0, 0]), [params.outDirection]);
   const width = params.width ?? 300;
   const height = params.height ?? 300;
-  const leg = Math.max(params.bendRadius ?? Math.max(width, height), Math.max(width, height));
+  // Legs must reach EXACTLY the bend radius: that is where the adjoining
+  // straights are trimmed to (backend _trimmed_segment_points). A longer leg
+  // overlaps the straight (z-fighting); a shorter one leaves a gap.
+  const leg = params.bendRadius ?? Math.max(width, height);
+  // Each leg runs past the corner by half the section so the two legs union into
+  // one solid square corner — a clean right angle with no separate filler box
+  // and no outer-corner notch.
+  const corner = Math.max(width, height) / 2;
   return (
     <group position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
-      <LocalBox p={p} start={inDir.clone().multiplyScalar(-leg)} end={new Vector3()} width={width} height={height} />
-      <LocalBox p={p} start={new Vector3()} end={outDir.clone().multiplyScalar(leg)} width={width} height={height} />
-      <mesh>
-        <boxGeometry args={[width, Math.max(width, height) * 0.9, height]} />
-        {StandardMaterial(p, 0.22, 0.58)}
-      </mesh>
+      <LocalBox p={p} start={inDir.clone().multiplyScalar(-leg)} end={inDir.clone().multiplyScalar(corner)} width={width} height={height} />
+      <LocalBox p={p} start={outDir.clone().multiplyScalar(-corner)} end={outDir.clone().multiplyScalar(leg)} width={width} height={height} />
     </group>
   );
 }

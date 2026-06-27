@@ -18,6 +18,14 @@ def _kinds(scene) -> list[ComponentKind]:
     return [e.kind for e in scene.elements]
 
 
+def _codes(scene) -> list[str]:
+    return [d.code for d in scene.diagnostics]
+
+
+def _diag_by_code(scene, code: str):
+    return next(d for d in scene.diagnostics if d.code == code)
+
+
 # --------------------------------------------------------------------------- #
 # Routing
 # --------------------------------------------------------------------------- #
@@ -213,3 +221,101 @@ def test_bom_has_one_row_per_element(service: GenerationService) -> None:
     scene = service.generate(DesignMode.PIPE, rows)
     assert len(scene.bom) == len(scene.elements)
     assert any(r.fitting_no == "FIT-01" for r in scene.bom)
+
+
+# --------------------------------------------------------------------------- #
+# Structured diagnostics (Plan_v2 §사용성): row-tied reason + recommended fix
+# --------------------------------------------------------------------------- #
+def test_valid_connection_emits_no_error_diagnostics(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "size_a": 100,
+         "length": 1000, "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    assert [d for d in scene.diagnostics if d.level == "error"] == []
+
+
+def test_diameter_mismatch_emits_diagnostic(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "size_a": 150,
+         "length": 1000, "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    diag = _diag_by_code(scene, "DIAMETER_MISMATCH")
+    assert diag.level == "error"
+    assert diag.seq == "2"  # the offending (child) row is flagged
+    assert diag.suggestion  # a recommended fix is offered
+    assert diag.position is not None  # has a 3D anchor → also gets an error marker
+
+
+def test_rect_section_mismatch_emits_diagnostic(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "size_a": 400, "size_b": 300, "length": 1000},
+        {"seq": 2, "system_type": "duct", "part_type": "straight",
+         "size_a": 500, "size_b": 300, "length": 1000,
+         "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    diag = _diag_by_code(scene, "SECTION_MISMATCH")
+    assert diag.level == "error"
+    assert diag.seq == "2"
+
+
+def test_shape_mismatch_emits_diagnostic(service: GenerationService) -> None:
+    """Round abutting rectangular without a transition is flagged as a shape error."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "shape": "round", "size_a": 350, "length": 1000},
+        {"seq": 2, "system_type": "duct", "part_type": "straight",
+         "size_a": 400, "size_b": 300, "length": 1000,
+         "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    diag = _diag_by_code(scene, "SHAPE_MISMATCH")
+    assert diag.level == "error"
+    assert "transition" in diag.suggestion.lower() or "변환관" in diag.suggestion
+
+
+def test_missing_target_emits_error_diagnostic(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "size_a": 100,
+         "length": 1000, "connect_to_seq": 99, "connect_port": "end"},  # seq 99 missing
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    diag = _diag_by_code(scene, "MISSING_TARGET")
+    assert diag.level == "error"
+    assert diag.seq == "2"
+
+
+def test_inherited_spec_emits_info_diagnostic(service: GenerationService) -> None:
+    """A sizeless follow-on part inherits its parent's section and says so (info)."""
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "length": 1000,
+         "connect_to_seq": 1, "connect_port": "end"},  # no size → inherits Ø100
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    diag = _diag_by_code(scene, "SPEC_INHERITED")
+    assert diag.level == "info"
+    assert diag.seq == "2"
+    assert ComponentKind.ERROR_MARKER not in _kinds(scene)  # info is non-blocking
+
+
+def test_error_diagnostics_match_error_markers(service: GenerationService) -> None:
+    """Every error marker in the 3D scene has a backing error-level diagnostic."""
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "size_a": 150,
+         "length": 1000, "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    markers = _kinds(scene).count(ComponentKind.ERROR_MARKER)
+    anchored_errors = [
+        d for d in scene.diagnostics if d.level == "error" and d.position is not None
+    ]
+    assert markers == len(anchored_errors)
+    assert markers >= 1

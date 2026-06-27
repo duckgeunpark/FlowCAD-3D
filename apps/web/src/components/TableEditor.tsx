@@ -2,9 +2,18 @@
 
 import { useRef, useState } from "react";
 import type { DesignMode } from "@flowcad/shared";
+import type { DiagnosticLevel } from "@flowcad/shared";
 import { columnsFor, type TableRow } from "@/lib/sampleData";
 import { downloadTemplate, uploadTable } from "@/lib/api";
-import { useViewerStore } from "@/store/useViewerStore";
+import { diagnosticsBySeq, useViewerStore, worstLevel } from "@/store/useViewerStore";
+
+// Row tint + left accent by worst diagnostic level (Plan_v2 §사용성: 오류 행 하이라이트).
+const ROW_TINT: Record<DiagnosticLevel, string> = {
+  error: "bg-red-900/30 hover:bg-red-900/40",
+  warning: "bg-amber-900/25 hover:bg-amber-900/35",
+  info: "bg-sky-900/20 hover:bg-sky-900/30",
+};
+const LEVEL_ICON: Record<DiagnosticLevel, string> = { error: "❗", warning: "⚠", info: "ⓘ" };
 
 interface TableEditorProps {
   mode: DesignMode;
@@ -43,8 +52,12 @@ const PLACEHOLDERS: Record<string, string> = {
 export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
   const columns = columnsFor(mode);
   const setError = useViewerStore((s) => s.setError);
+  const scene = useViewerStore((s) => s.scene);
+  const select = useViewerStore((s) => s.select);
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+
+  const diagBySeq = diagnosticsBySeq(scene);
 
   const handleTemplate = async () => {
     setError(null);
@@ -153,29 +166,50 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rIdx) => (
-              <tr key={rIdx} className="hover:bg-panelLight/40">
-                {columns.map((c) => (
-                  <td key={c} className="border-b border-panelLight/50 p-0">
-                    <input
-                      value={String(row[c] ?? "")}
-                      placeholder={PLACEHOLDERS[c] ?? ""}
-                      onChange={(e) => update(rIdx, c, e.target.value)}
-                      className="w-24 bg-transparent px-1.5 py-1 outline-none focus:bg-panelLight placeholder:text-gray-700"
-                    />
+            {rows.map((row, rIdx) => {
+              const seqKey = String(row.seq ?? "").trim();
+              const diags = seqKey ? diagBySeq.get(seqKey) ?? [] : [];
+              const level = worstLevel(diags);
+              const tip = diags
+                .map((d) => `${LEVEL_ICON[d.level]} ${d.message}${d.suggestion ? `\n   ↳ ${d.suggestion}` : ""}`)
+                .join("\n");
+              return (
+                <tr
+                  key={rIdx}
+                  title={tip || undefined}
+                  onClick={level ? () => select(`A${seqKey}`) : undefined}
+                  className={level ? `${ROW_TINT[level]} cursor-pointer` : "hover:bg-panelLight/40"}
+                >
+                  {columns.map((c, cIdx) => (
+                    <td key={c} className="border-b border-panelLight/50 p-0">
+                      <div className="flex items-center">
+                        {cIdx === 0 && level && (
+                          <span className="pl-1 text-[11px] select-none">{LEVEL_ICON[level]}</span>
+                        )}
+                        <input
+                          value={String(row[c] ?? "")}
+                          placeholder={PLACEHOLDERS[c] ?? ""}
+                          onChange={(e) => update(rIdx, c, e.target.value)}
+                          className="w-24 bg-transparent px-1.5 py-1 outline-none focus:bg-panelLight placeholder:text-gray-700"
+                        />
+                      </div>
+                    </td>
+                  ))}
+                  <td className="border-b border-panelLight/50 text-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeRow(rIdx);
+                      }}
+                      className="text-gray-500 hover:text-red-400 px-1"
+                      title="삭제"
+                    >
+                      ×
+                    </button>
                   </td>
-                ))}
-                <td className="border-b border-panelLight/50 text-center">
-                  <button
-                    onClick={() => removeRow(rIdx)}
-                    className="text-gray-500 hover:text-red-400 px-1"
-                    title="삭제"
-                  >
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

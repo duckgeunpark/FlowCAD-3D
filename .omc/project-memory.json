@@ -18,7 +18,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd \"C:/Users/USER/Project/CD/FlowCAD 3D\" && npm run build:web 2>&1 | tail -30; echo \"EXIT=${PIPESTATUS[0]}\"",
+    "buildCommand": "cd \"/c/Users/duke/Desktop/Project/FlowCAD-3D\" && npm run build:web 2>&1 | tail -12; echo \"EXIT=${PIPESTATUS[0]}\"",
     "testCommand": "cd \"C:\\Users\\USER\\Project\\CD\\FlowCAD 3D/apps/api\" && python -m pytest tests/test_assembly.py -q 2>&1 | tail -20",
     "lintCommand": null,
     "devCommand": null,
@@ -94,8 +94,20 @@
   "hotPaths": [
     {
       "path": "apps\\api\\app\\engine\\assembly.py",
-      "accessCount": 8,
-      "lastAccessed": 1782545731529,
+      "accessCount": 16,
+      "lastAccessed": 1782570308361,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\engine\\geometry_factory.py",
+      "accessCount": 7,
+      "lastAccessed": 1782567226276,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\tests\\test_assembly.py",
+      "accessCount": 6,
+      "lastAccessed": 1782570342412,
       "type": "file"
     },
     {
@@ -105,21 +117,15 @@
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\engine\\geometry_factory.py",
-      "accessCount": 2,
-      "lastAccessed": 1782545190462,
+      "path": "apps\\api\\app\\domain\\components.py",
+      "accessCount": 3,
+      "lastAccessed": 1782548274986,
       "type": "file"
     },
     {
       "path": "apps\\api\\app\\services\\generation_service.py",
-      "accessCount": 2,
-      "lastAccessed": 1782545197650,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\domain\\components.py",
-      "accessCount": 2,
-      "lastAccessed": 1782545199714,
+      "accessCount": 3,
+      "lastAccessed": 1782548283070,
       "type": "file"
     },
     {
@@ -141,9 +147,15 @@
       "type": "directory"
     },
     {
-      "path": "apps\\api\\tests\\test_assembly.py",
+      "path": "Documents\\Plan_v2.md",
       "accessCount": 2,
-      "lastAccessed": 1782545780789,
+      "lastAccessed": 1782548264617,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\services\\table_template.py",
+      "accessCount": 2,
+      "lastAccessed": 1782548284118,
       "type": "file"
     },
     {
@@ -237,9 +249,21 @@
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\services\\table_template.py",
+      "path": "apps\\api\\app\\engine\\catalog.py",
       "accessCount": 1,
-      "lastAccessed": 1782545198015,
+      "lastAccessed": 1782548274358,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src",
+      "accessCount": 1,
+      "lastAccessed": 1782549471654,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\api\\app\\services\\export_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1782549657032,
       "type": "file"
     }
   ],

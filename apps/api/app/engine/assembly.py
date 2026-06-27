@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from ..domain.components import CrossSection, Metadata, Node, Run
 from ..domain.enums import ComponentKind, DesignMode, DuctShape
 from ..domain.geometry import Vec3
-from ..domain.scene import SceneDocument
+from ..domain.scene import Diagnostic, SceneDocument
 from ..specs.repository import SpecNotFoundError, SpecRepository
 from .geometry_factory import GeometryFactory
 from .scene_builder import SceneBuilder
@@ -152,6 +152,40 @@ def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
         return "cap", None
     # default: a straight segment (also covers 'pipe'/'duct'/'straight')
     return "segment", None
+
+
+def _diag(
+    level: str,
+    code: str,
+    seq: object,
+    message: str,
+    *,
+    suggestion: str = "",
+    joint_no: str = "",
+    position: Vec3 | None = None,
+) -> dict:
+    """Build a diagnostic dict. ``desc``/``joint_no``/``position`` keys keep it
+    compatible with :meth:`GeometryFactory.build_error_marker` for 3D markers."""
+    text = f"[seq {seq}] {message}" if seq not in (None, "") else message
+    return {
+        "level": level,
+        "code": code,
+        "seq": str(seq),
+        "message": text,
+        "suggestion": suggestion,
+        "joint_no": joint_no,
+        "position": position,
+        "desc": text,
+    }
+
+
+def _row_has_size(row: dict, system_type: str) -> bool:
+    """True if the row supplies its own cross-section (so nothing is inherited)."""
+    if system_type == "pipe":
+        keys = ("nominal", "size_a", "diameter")
+    else:
+        keys = ("size_a", "size_b", "width", "height", "diameter")
+    return any(str(row.get(k, "")).strip() for k in keys)
 
 
 def _num(value: object) -> float | None:
@@ -348,6 +382,11 @@ class AssemblyResolver:
 
             prev_section = parent.out_section if parent is not None else None
             section, spec_label = self._resolve_section(row, system_type, prev_section, seq)
+            if parent is not None and not _row_has_size(row, system_type):
+                errors.append(_diag(
+                    "info", "SPEC_INHERITED", seq,
+                    f"규격 미입력 → 연결된 seq {connect_to}에서 {spec_label} 상속",
+                ))
             metadata = self._metadata(row, spec_label)
             length = _num(row.get("length"))
             if length is None:
@@ -368,11 +407,13 @@ class AssemblyResolver:
             elif connect_to:
                 # A named connection target that does not exist: surface it instead
                 # of silently re-rooting this part 4 m away.
-                errors.append({
-                    "joint_no": resolved.metadata.joint_no or seq,
-                    "position": entry_pos,
-                    "desc": f"[seq {seq}] 연결 대상 seq '{connect_to}' 를 찾을 수 없음",
-                })
+                errors.append(_diag(
+                    "error", "MISSING_TARGET", seq,
+                    f"연결 대상 seq '{connect_to}' 를 찾을 수 없음",
+                    suggestion="connect_to_seq를 존재하는 자재 순번으로 수정하세요.",
+                    joint_no=resolved.metadata.joint_no or str(seq),
+                    position=entry_pos,
+                ))
 
         _assign_neighbors(parts, children)
         return order, errors
@@ -388,7 +429,15 @@ class AssemblyResolver:
                 out_dir = override
             else:
                 turn = angle if angle is not None else 90.0
-                out_dir = _norm(_rotate_axis(h_in, _turn_axis_for(h_in), turn))
+                # ``rotation`` rolls the bend plane about the incoming heading so
+                # the elbow (and everything downstream of its ``out`` port) can be
+                # swung out of the default plan view, e.g. to turn up instead of
+                # sideways. roll=0 reproduces the original behaviour.
+                axis = _turn_axis_for(h_in)
+                roll = _num(row.get("rotation"))
+                if roll:
+                    axis = _norm(_rotate_axis(axis, h_in, roll))
+                out_dir = _norm(_rotate_axis(h_in, axis, turn))
             ports = {
                 "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
                 "out": (entry_pos, out_dir), "end": (entry_pos, out_dir),
@@ -470,20 +519,40 @@ class AssemblyResolver:
         a = parent.out_section
         b = child.in_section
         desc = ""
+        code = ""
+        suggestion = ""
         if a.shape is not b.shape:
+            code = "SHAPE_MISMATCH"
             desc = f"형상 불일치: {a.shape.value} ↔ {b.shape.value} (변환관 필요)"
+            suggestion = (f"seq {parent.seq}와 seq {child.seq} 사이에 "
+                          "변환관(transition)을 삽입하세요.")
         elif a.shape is DuctShape.ROUND:
             if abs(a.outer_diameter - b.outer_diameter) > 1e-3:
+                code = "DIAMETER_MISMATCH"
                 desc = (f"직경 불일치: Ø{a.outer_diameter:g} ↔ Ø{b.outer_diameter:g} "
                         "(ROUND_SAME_DIA)")
+                suggestion = (f"seq {child.seq}의 직경을 Ø{a.outer_diameter:g}로 맞추거나 "
+                              "레듀서(reducer)를 삽입하세요.")
         else:
             if abs(a.width - b.width) > 1e-3 or abs(a.height - b.height) > 1e-3:
+                code = "SECTION_MISMATCH"
                 desc = (f"단면 불일치: {a.width:g}x{a.height:g} ↔ "
                         f"{b.width:g}x{b.height:g} (RECT_SAME_WH)")
+                suggestion = (f"seq {child.seq}의 치수를 {a.width:g}x{a.height:g}로 맞추거나 "
+                              "변환관(transition)을 삽입하세요.")
         if not desc:
             return None
         jno = child.metadata.joint_no or parent.metadata.joint_no or f"{parent.seq}-{child.seq}"
-        return {"joint_no": jno, "position": pos, "desc": f"[연결 {parent.seq}→{child.seq}] {desc}"}
+        return {
+            "level": "error",
+            "code": code,
+            "seq": str(child.seq),
+            "message": f"[연결 {parent.seq}→{child.seq}] {desc}",
+            "suggestion": suggestion,
+            "joint_no": jno,
+            "position": pos,
+            "desc": f"[연결 {parent.seq}→{child.seq}] {desc}",
+        }
 
 
 def _parent_port(parent: ResolvedPart, port: str) -> tuple[Vec3, Vec3]:
@@ -529,7 +598,7 @@ class AssemblyCompiler:
         self._factory = factory or GeometryFactory()
 
     def compile(
-        self, parts: list[ResolvedPart], mode: DesignMode, errors: list[dict]
+        self, parts: list[ResolvedPart], mode: DesignMode, diagnostics: list[dict]
     ) -> SceneDocument:
         builder = SceneBuilder()
         for rp in parts:
@@ -541,8 +610,25 @@ class AssemblyCompiler:
             elif rp.role == "fitting":
                 builder.add(self._fitting(rp, mode, eid))
             # 'cap' renders no geometry in the MVP (it only closes a port)
-        for i, marker in enumerate(errors):
-            builder.add(self._factory.build_error_marker(marker, f"AERR-{i:03d}"))
+        # Only blocking (error-level) diagnostics with a 3D anchor get a marker;
+        # info/warning rows surface in the table/diagnostics panel instead.
+        marker_idx = 0
+        for d in diagnostics:
+            if d.get("level") == "error" and d.get("position") is not None:
+                builder.add(self._factory.build_error_marker(d, f"AERR-{marker_idx:03d}"))
+                marker_idx += 1
+        builder.add_diagnostics([
+            Diagnostic(
+                level=d["level"],
+                code=d["code"],
+                seq=d["seq"],
+                message=d["message"],
+                suggestion=d.get("suggestion", ""),
+                position=(list(d["position"].as_tuple())
+                          if d.get("position") is not None else None),
+            )
+            for d in diagnostics
+        ])
         return builder.build()
 
     def _segment(self, rp: ResolvedPart, mode: DesignMode, eid: str):

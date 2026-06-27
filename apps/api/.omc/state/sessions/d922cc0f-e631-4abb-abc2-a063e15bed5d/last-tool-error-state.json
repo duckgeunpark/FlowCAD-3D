@@ -1,0 +1,7 @@
+{
+  "tool_name": "PowerShell",
+  "tool_input_preview": "{\"command\":\"$py = \\\"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python312\\\\python.exe\\\"; cd \\\"C:\\\\Users\\\\duke\\\\Desktop\\\\Project\\\\FlowCAD-3D\\\\apps\\\\api\\\"; & $py -m pytest -q 2>&1 | Select-Object -Last 20\",\"de...",
+  "error": "Exit code 1\n        tee = next(e for e in scene.elements if e.kind is ComponentKind.TEE)\r\n    \r\n        assert len(tee.joints) == 3\r\n        assert {j.role for j in tee.joints} == {\"in\", \"out\", \"branch\"}\r\n>       assert {j.no for j in tee.joints} == {\"J-002-IN\", \"J-002-OUT\", \"J-002-BR\"}\r\nE       AssertionError: assert {'J-002'} == {'J-002-BR', ..., 'J-002-OUT'}\r\nE         \r\nE         Extra items in the left set:\r\nE         'J-002'\r\nE         Extra items in the right set:\r\nE         'J-002-BR'\r\nE...",
+  "timestamp": "2026-06-27T08:52:38.966Z",
+  "retry_count": 1
+}

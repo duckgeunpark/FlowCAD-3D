@@ -9,16 +9,21 @@ import math
 
 from ..domain.enums import ComponentKind
 from ..domain.geometry import Vec3
-from ..domain.scene import BomRow, SceneDocument, SceneElement
+from ..domain.scene import BomRow, Diagnostic, SceneDocument, SceneElement
 
 
 class SceneBuilder:
     def __init__(self) -> None:
         self._elements: list[SceneElement] = []
         self._bom: list[BomRow] = []
+        self._diagnostics: list[Diagnostic] = []
         self._min = [math.inf, math.inf, math.inf]
         self._max = [-math.inf, -math.inf, -math.inf]
         self._item_counter = 0
+
+    def add_diagnostics(self, diagnostics: list[Diagnostic]) -> "SceneBuilder":
+        self._diagnostics.extend(diagnostics)
+        return self
 
     def add(self, element: SceneElement) -> "SceneBuilder":
         if not element.item_no:
@@ -32,7 +37,7 @@ class SceneBuilder:
 
     def build(self) -> SceneDocument:
         if not self._elements:
-            return SceneDocument()
+            return SceneDocument(diagnostics=self._diagnostics)
         self._resolve_open_joints()
         return SceneDocument(
             units="mm",
@@ -40,6 +45,7 @@ class SceneBuilder:
             bounds_max=Vec3(*self._max),
             elements=self._elements,
             bom=self._bom,
+            diagnostics=self._diagnostics,
         )
 
     # -- internals ------------------------------------------------------------
