@@ -94,8 +94,14 @@
   "hotPaths": [
     {
       "path": "apps\\api\\app\\engine\\assembly.py",
-      "accessCount": 7,
-      "lastAccessed": 1782545723210,
+      "accessCount": 8,
+      "lastAccessed": 1782545731529,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\api\\routes.py",
+      "accessCount": 4,
+      "lastAccessed": 1782545755791,
       "type": "file"
     },
     {
@@ -133,6 +139,12 @@
       "accessCount": 2,
       "lastAccessed": 1782545457538,
       "type": "directory"
+    },
+    {
+      "path": "apps\\api\\tests\\test_assembly.py",
+      "accessCount": 2,
+      "lastAccessed": 1782545780789,
+      "type": "file"
     },
     {
       "path": "README.md",
@@ -195,12 +207,6 @@
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\api\\routes.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534440113,
-      "type": "file"
-    },
-    {
       "path": "apps\\web\\src\\components\\DetailPanel.tsx",
       "accessCount": 1,
       "lastAccessed": 1782534488509,
@@ -234,12 +240,6 @@
       "path": "apps\\api\\app\\services\\table_template.py",
       "accessCount": 1,
       "lastAccessed": 1782545198015,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\tests\\test_assembly.py",
-      "accessCount": 1,
-      "lastAccessed": 1782545199578,
       "type": "file"
     }
   ],

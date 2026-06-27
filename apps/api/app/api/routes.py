@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from ..domain.enums import DesignMode, ExportFormat
+from ..engine.assembly import AssemblyError
 from ..export.base import BackendUnavailableError, ExporterError
 from ..parsing.base import ParseError
 from ..services.csv_loader import load_csv
@@ -91,7 +92,7 @@ def export(
         result = service.export(request.mode, request.rows, request.format)
     except SpecNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ParseError as exc:
+    except (ParseError, AssemblyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
@@ -109,6 +110,6 @@ def _run(service: GenerationService, mode: DesignMode, rows: list[dict]) -> Scen
         scene = service.generate(mode, rows)
     except SpecNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ParseError as exc:
+    except (ParseError, AssemblyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return SceneDocumentDTO.from_domain(scene)

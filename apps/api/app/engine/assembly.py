@@ -40,6 +40,10 @@ _VALVE_TYPES = {"valve", "gate_valve", "butterfly_valve"}
 _DAMPER_TYPES = {"damper", "vd", "fd"}
 _CAP_TYPES = {"cap", "blind"}
 
+# Fittings whose centerline sits AT the connection point (so abutting straights
+# need trimming). Inline fittings (valve/damper) expose ports on their faces.
+_CORNER_FITTINGS = {ComponentKind.ELBOW, ComponentKind.TEE}
+
 _DIRECTIONS: dict[str, Vec3] = {
     "e": Vec3(1, 0, 0), "east": Vec3(1, 0, 0), "x+": Vec3(1, 0, 0), "+x": Vec3(1, 0, 0),
     "w": Vec3(-1, 0, 0), "west": Vec3(-1, 0, 0), "x-": Vec3(-1, 0, 0), "-x": Vec3(-1, 0, 0),

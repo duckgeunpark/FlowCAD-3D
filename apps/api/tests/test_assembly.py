@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.enums import ComponentKind, DesignMode
-from app.engine.assembly import is_assembly_input
+from app.engine.assembly import AssemblyError, is_assembly_input
 from app.services.generation_service import GenerationService
 from app.specs.repository import InMemorySpecRepository
 
