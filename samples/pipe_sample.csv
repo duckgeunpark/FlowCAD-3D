@@ -1,0 +1,6 @@
+run_id,seq,x,y,z,nominal,schedule,fitting,drawing_no,fitting_no,joint_no
+R1,1,0,0,0,100A,Sch40,,DWG-01,,JNT-001
+R1,2,2000,0,0,100A,Sch40,elbow,DWG-01,FIT-01,JNT-002
+R1,3,2000,0,1500,100A,Sch40,valve,DWG-01,FIT-02,JNT-003
+R1,4,2000,2500,1500,100A,Sch40,elbow,DWG-01,FIT-03,JNT-004
+R1,5,4500,2500,1500,100A,Sch40,tee,DWG-01,FIT-04,JNT-005

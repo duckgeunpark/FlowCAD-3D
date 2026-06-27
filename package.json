@@ -1,0 +1,14 @@
+{
+  "name": "flowcad-3d",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Smart pipe/duct 3D auto-generation & interactive drawing SaaS",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace apps/web",
+    "build:web": "npm run build --workspace apps/web"
+  }
+}

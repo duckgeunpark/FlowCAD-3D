@@ -1,0 +1,17 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-multipart==0.0.20
+pytest==8.3.4
+httpx==0.28.1
+
+# --- Input templates ---
+openpyxl==3.1.5         # empty .xlsx template generation + upload parsing
+
+# --- Export engine backends ---
+ezdxf==1.4.4            # 3D DXF (AutoCAD)
+matplotlib==3.11.0      # 2D isometric PDF
+ifcopenshell==0.8.5     # IFC4 (Revit/Navisworks)
+# STEP (SolidWorks/CATIA) needs OpenCASCADE — heavy, optional:
+#   pip install cadquery-ocp==7.9.3.1.1
+# The engine detects availability at runtime and degrades gracefully.
