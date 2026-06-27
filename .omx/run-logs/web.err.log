@@ -1,0 +1,267 @@
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/TableEditor.tsx
+Error:   [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4mC:\Users\USER\Project\CD\FlowCAD 3D\apps\web\src\components\TableEditor.tsx[0m:200:1]
+ [2m197[0m |     </div>
+ [2m198[0m |   );
+ [2m199[0m | }
+ [2m200[0m |  hover:text-red-400 px-1"
+     : [35;1m       ^^^^^^|^^^^^[0m[33;1m ^^[0m
+     :              [35;1m`-- [35;1mThis is the expression part of an expression statement[0m[0m
+ [2m201[0m |                     title="삭제"
+ [2m202[0m |                   >
+ [2m203[0m |                     ×
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/TableEditor.tsx
+./src/app/page.tsx
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\cache\webpack\server-development\6.pack.gz_' -> 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\cache\webpack\server-development\6.pack.gz'
+ ⨯ Error: ENOENT: no such file or directory, open 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\vendor-chunks\next.js'
+    at <unknown> (C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\app\_not-found\page.js:227:47)
+    at Object.<anonymous> (C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\app\_not-found\page.js:230:3) {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\USER\\Project\\CD\\FlowCAD 3D\\apps\\web\\.next\\server\\vendor-chunks\\next.js'
+}
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [Error: Cannot find module 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\pages\_document.js'
+Require stack:
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\require.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\load-components.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\utils.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\options.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\index.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [Error: Cannot find module 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\pages\_document.js'
+Require stack:
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\require.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\load-components.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\utils.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\options.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\index.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\app\page.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\USER\\Project\\CD\\FlowCAD 3D\\apps\\web\\.next\\server\\app\\page.js',
+  page: '/'
+}
+ ⨯ [Error: Cannot find module 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\pages\_document.js'
+Require stack:
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\require.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\load-components.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\utils.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\options.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\index.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[Error: ENOENT: no such file or directory, open 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\app\page.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\USER\\Project\\CD\\FlowCAD 3D\\apps\\web\\.next\\server\\app\\page.js',
+  page: '/'
+}
+ ⨯ [Error: Cannot find module 'C:\Users\USER\Project\CD\FlowCAD 3D\apps\web\.next\server\pages\_document.js'
+Require stack:
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\require.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\load-components.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\utils.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\options.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\swc\index.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USER\Project\CD\FlowCAD 3D\node_modules\next\dist\server\lib\start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+[TypeError: Cannot read properties of undefined (reading '/_app')]
+ ⨯ [TypeError: Cannot read properties of undefined (reading '/_app')]
+[TypeError: Cannot read properties of undefined (reading '/_app')]

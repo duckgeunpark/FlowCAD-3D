@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__plugin_oh-my-claudecode_t__lsp_diagnostics",
+  "tool_input_preview": "{\"file\":\"C:\\\\Users\\\\USER\\\\Project\\\\CD\\\\FlowCAD 3D\\\\apps\\\\api\\\\app\\\\export\\\\dxf_exporter.py\"}",
+  "error": "Language server 'ty' not found.\nInstall with: Install ty from https://github.com/astral-sh/ty",
+  "timestamp": "2026-06-26T13:01:01.623Z",
+  "retry_count": 3
+}

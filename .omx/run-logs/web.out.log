@@ -1,0 +1,44 @@
+
+> @flowcad/web@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.68.62:3000
+
+ ✓ Starting...
+ ✓ Ready in 1933ms
+ ○ Compiling / ...
+ ✓ Compiled / in 6.4s (1697 modules)
+ GET / 200 in 6772ms
+ GET / 200 in 64ms
+ GET / 200 in 115ms
+ GET / 200 in 218ms
+ GET / 500 in 4049ms
+ ○ Compiling /_error ...
+ GET / 500 in 206ms
+ GET / 500 in 47ms
+ ✓ Compiled /_error in 3.6s (1948 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.7s (1953 modules)
+ ✓ Compiled /_error in 462ms (2035 modules)
+ ✓ Compiled in 2.9s (1948 modules)
+ GET / 200 in 1026ms
+ ✓ Compiled in 1615ms (1948 modules)
+ GET / 200 in 390ms
+ GET / 200 in 545ms
+ ✓ Compiled in 2.2s (1948 modules)
+ GET / 200 in 252ms
+ ✓ Compiled in 3.7s (1948 modules)
+ GET / 200 in 428ms
+ ✓ Compiled in 1819ms (1948 modules)
+ ✓ Compiled in 1304ms (1948 modules)
+ ✓ Compiled in 2.6s (1948 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1497ms (1939 modules)
+ GET / 404 in 2141ms
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 2.5s (2035 modules)
+ GET / 500 in 2982ms
+ GET / 500 in 143ms
+[?25h
