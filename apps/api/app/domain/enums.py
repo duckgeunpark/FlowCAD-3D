@@ -25,6 +25,7 @@ class ComponentKind(str, Enum):
     DUCT_SEGMENT = "duct_segment"
     TRANSITION = "transition"
     DAMPER = "damper"
+    ERROR_MARKER = "error_marker"
 
 
 class DuctShape(str, Enum):

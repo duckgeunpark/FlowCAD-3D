@@ -20,6 +20,7 @@ const Viewer = dynamic(
 export default function Home() {
   const { mode, setScene, setError, setLoading, error } = useViewerStore();
   const [rows, setRows] = useState<TableRow[]>(() => sampleRowsFor("pipe"));
+  const [activeTab, setActiveTab] = useState<"editor" | "bom">("editor");
 
   // Reset rows to the matching sample whenever the design mode changes.
   useEffect(() => {
@@ -51,14 +52,43 @@ export default function Home() {
       )}
 
       <div className="flex flex-1 min-h-0">
-        <aside className="w-[440px] flex flex-col border-r border-panelLight bg-panel/60">
-          <div className="h-1/2 min-h-0 border-b border-panelLight">
-            <TableEditor mode={mode} rows={rows} onChange={setRows} />
+        <aside className="w-[460px] flex flex-col border-r border-panelLight bg-panel/60 shadow-lg">
+          <div className="flex border-b border-panelLight bg-panel/90 px-2 pt-2 gap-1">
+            <button
+              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-t-lg transition-all border-t border-x ${
+                activeTab === "editor"
+                  ? "bg-panel border-panelLight text-emerald-300 shadow-sm"
+                  : "bg-transparent border-transparent text-gray-400 hover:text-gray-200 hover:bg-panelLight/20"
+              }`}
+              onClick={() => setActiveTab("editor")}
+            >
+              📋 설계 입력 테이블
+            </button>
+            <button
+              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-t-lg transition-all border-t border-x ${
+                activeTab === "bom"
+                  ? "bg-panel border-panelLight text-emerald-300 shadow-sm"
+                  : "bg-transparent border-transparent text-gray-400 hover:text-gray-200 hover:bg-panelLight/20"
+              }`}
+              onClick={() => setActiveTab("bom")}
+            >
+              📦 자재 명세서 (BOM)
+            </button>
           </div>
-          <div className="h-1/2 min-h-0 flex flex-col">
-            <div className="flex-1 min-h-0">
-              <BomTable />
-            </div>
+
+          <div className="flex-1 min-h-0 flex flex-col">
+            {activeTab === "editor" ? (
+              <div className="flex-1 min-h-0 flex flex-col">
+                <TableEditor mode={mode} rows={rows} onChange={setRows} />
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0 flex flex-col">
+                <BomTable />
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-panelLight bg-panel/40">
             <ExportBar mode={mode} rows={rows} />
           </div>
         </aside>

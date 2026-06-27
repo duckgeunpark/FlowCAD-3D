@@ -18,5 +18,5 @@ class ParserFactory:
         if mode is DesignMode.PIPE:
             return PipeInputParser(self._specs)
         if mode is DesignMode.DUCT:
-            return DuctInputParser()
+            return DuctInputParser(self._specs)
         raise ValueError(f"unsupported design mode: {mode}")

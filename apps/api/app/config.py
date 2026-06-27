@@ -19,12 +19,14 @@ class Settings:
             [
                 "http://localhost:3000",
                 "http://127.0.0.1:3000",
+                "http://localhost:3001",
+                "http://127.0.0.1:3001",
             ],
         )
     )
     cors_origin_regex: str | None = os.getenv(
         "FLOWCAD_CORS_ORIGIN_REGEX",
-        r"http://.*:3000",
+        r"http://.*:300[0-9]",
     )
 
 

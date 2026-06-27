@@ -7,6 +7,7 @@ Three.js meshes.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from ..domain.components import CrossSection, Node, Run
 from ..domain.enums import ComponentKind, DuctShape
@@ -24,11 +25,31 @@ _PALETTE: dict[ComponentKind, str] = {
     ComponentKind.VALVE: "#d56c6c",
     ComponentKind.TRANSITION: "#b07cd5",
     ComponentKind.DAMPER: "#d59a4f",
+    ComponentKind.ERROR_MARKER: "#ef4444",
 }
 
 
 class GeometryFactory:
     """Produces :class:`SceneElement` objects from domain primitives."""
+
+    def build_error_marker(self, marker_info: dict[str, Any], eid: str) -> SceneElement:
+        pos = marker_info["position"]
+        desc = marker_info["desc"]
+        jno = marker_info["joint_no"]
+        return SceneElement(
+            id=eid,
+            kind=ComponentKind.ERROR_MARKER,
+            params={"position": list(pos.as_tuple())},
+            color=_PALETTE[ComponentKind.ERROR_MARKER],
+            user_data={
+                "itemNo": f"ERR-{jno}",
+                "jointNo": jno,
+                "spec": "DRC 불일치 감지",
+                "desc": desc,
+                "description": desc,
+            },
+            joints=[],
+        )
 
     def build_segment(self, run: Run, a: Node, b: Node, eid: str) -> SceneElement:
         """A straight run between two same-section nodes."""
@@ -62,7 +83,7 @@ class GeometryFactory:
             params=params,
             color=_PALETTE[kind],
             user_data=self._user_data(a, extra={"length_mm": str(
-                round(trimmed_length, 1))}),
+                round(trimmed_length, 1))}, run=run),
             joints=[
                 _joint_port(eid, a, "start", start, _unit_list(a.position - b.position),
                             open_=a.fitting is None),
@@ -88,7 +109,7 @@ class GeometryFactory:
             params=params,
             color=_PALETTE[ComponentKind.TRANSITION],
             user_data=self._user_data(a, extra={"length_mm": str(
-                round((b.position - a.position).length(), 1))}),
+                round((b.position - a.position).length(), 1))}, run=run),
             joints=[
                 _joint_port(eid, a, "start", a.position, _unit_list(a.position - b.position),
                             open_=a.fitting is None),
@@ -190,7 +211,7 @@ class GeometryFactory:
             kind=kind,
             params=params,
             color=_PALETTE.get(kind, "#ffffff"),
-            user_data=self._user_data(node),
+            user_data=self._user_data(node, run=run),
             joints=joints,
         )
 
@@ -206,12 +227,22 @@ class GeometryFactory:
         return max(section.width, section.height) / 2.0
 
     @staticmethod
-    def _user_data(node: Node, extra: dict[str, str] | None = None) -> dict[str, str]:
+    def _user_data(node: Node, extra: dict[str, str] | None = None, run: Run | None = None) -> dict[str, str]:
+        from .catalog import get_part_family
+
+        sec = node.section or (run.section if run else None)
+        shape = sec.shape if sec else DuctShape.ROUND
+        mode_str = run.mode.value if run else "pipe"
+        family = get_part_family(node.fitting, shape, mode_str)
+
         data = {
+            "itemNo": node.metadata.item_no or node.metadata.drawing_no or "",
             "drawingNo": node.metadata.drawing_no,
             "fittingNo": node.metadata.fitting_no,
             "jointNo": node.metadata.joint_no,
             "spec": node.metadata.spec,
+            "partFamily": family.family_code,
+            "familyName": family.family_name,
         }
         data.update(node.metadata.extra)
         if extra:
@@ -306,18 +337,17 @@ def _joint_base(node: Node) -> str:
 
 
 def _joint_no(node: Node, role: str) -> str:
-    base = _joint_base(node)
-    if node.fitting is None:
-        return base
-    suffix_by_role = {
-        "start": "OUT",
-        "end": "IN",
-        "in": "IN",
-        "out": "OUT",
-        "branch": "BR",
-    }
-    suffix = suffix_by_role.get(role, role.upper())
-    return f"{base}-{suffix}"
+    jnos = node.metadata.joint_nos
+    if jnos:
+        if role in ("start", "in"):
+            return jnos[0]
+        if role in ("end", "out"):
+            return jnos[1] if len(jnos) > 1 else jnos[0]
+        if role == "branch":
+            return jnos[2] if len(jnos) > 2 else jnos[-1]
+        return jnos[0]
+    # Fallback to base without appending unnecessary IN/OUT suffixes
+    return _joint_base(node)
 
 
 def _joint_port(

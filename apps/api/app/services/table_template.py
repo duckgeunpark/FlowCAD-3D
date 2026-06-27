@@ -12,17 +12,17 @@ from ..domain.enums import DesignMode
 from ..parsing.base import Row
 
 PIPE_COLUMNS = [
-    "run_id", "seq", "x", "y", "z", "nominal", "schedule",
-    "fitting", "drawing_no", "fitting_no", "joint_no",
+    "run_id", "seq", "joint_no", "fitting", "direction", "length",
+    "nominal", "schedule", "rotation", "drawing_no", "fitting_no",
 ]
 DUCT_COLUMNS = [
-    "run_id", "seq", "x", "y", "z", "shape", "width", "height", "diameter",
-    "fitting", "drawing_no", "fitting_no", "joint_no",
+    "run_id", "seq", "joint_no", "fitting", "direction", "length",
+    "shape", "width", "height", "diameter", "rotation", "drawing_no", "fitting_no",
 ]
 
 # One guiding example row per mode (helps users understand units/values).
-_PIPE_EXAMPLE = ["R1", 1, 0, 0, 0, "100A", "Sch40", "", "DWG-01", "", "JNT-001"]
-_DUCT_EXAMPLE = ["D1", 1, 0, 0, 0, "rectangular", 400, 300, "", "", "DWG-D1", "", "DJ-001"]
+_PIPE_EXAMPLE = ["R1", 1, "JNT-001", "", "", "", "100A", "Sch40", "", "DWG-01", ""]
+_DUCT_EXAMPLE = ["D1", 1, "DJ-001", "", "", "", "rectangular", 400, 300, "", "", "DWG-D1", ""]
 
 
 def columns_for(mode: DesignMode) -> list[str]:

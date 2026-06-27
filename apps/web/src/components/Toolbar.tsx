@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import type { DesignMode } from "@flowcad/shared";
 import { useViewerStore } from "@/store/useViewerStore";
+import type { LabelMode, ViewMode } from "@/store/useViewerStore";
 
 interface ToolbarProps {
   onGenerate: () => void;
@@ -9,8 +10,17 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ onGenerate, onLoadSample }: ToolbarProps) {
-  const { mode, setMode, viewMode, setViewMode, searchTerm, setSearch, loading } =
-    useViewerStore();
+  const {
+    mode,
+    setMode,
+    viewMode,
+    setViewMode,
+    labelMode,
+    setLabelMode,
+    searchTerm,
+    setSearch,
+    loading,
+  } = useViewerStore();
 
   return (
     <header className="flex items-center gap-3 px-4 py-2 bg-panel border-b border-panelLight">
@@ -20,17 +30,28 @@ export function Toolbar({ onGenerate, onLoadSample }: ToolbarProps) {
         value={mode}
         onChange={setMode}
         options={[
-          { value: "pipe", label: "🚰 파이프" },
-          { value: "duct", label: "💨 덕트" },
+          { value: "pipe", label: "파이프" },
+          { value: "duct", label: "덕트" },
         ]}
       />
 
-      <Segmented<"true_scale" | "iso">
+      <Segmented<ViewMode>
         value={viewMode}
         onChange={setViewMode}
         options={[
           { value: "true_scale", label: "실척 3D" },
           { value: "iso", label: "ISO 뷰" },
+        ]}
+      />
+
+      <Segmented<LabelMode>
+        value={labelMode}
+        onChange={setLabelMode}
+        options={[
+          { value: "auto", label: "라벨 자동" },
+          { value: "all", label: "전체" },
+          { value: "joints", label: "조인트만" },
+          { value: "none", label: "숨김" },
         ]}
       />
 
@@ -73,7 +94,7 @@ function Segmented<T extends string>({ value, onChange, options }: SegmentedProp
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
-          className={`px-3 py-1 rounded transition-colors ${
+          className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
             value === o.value ? "bg-accent text-white" : "text-gray-300 hover:text-white"
           }`}
         >

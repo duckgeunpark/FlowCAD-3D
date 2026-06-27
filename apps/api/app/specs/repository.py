@@ -27,6 +27,18 @@ class PipeSpec:
         return self.outer_diameter * 1.5
 
 
+@dataclass(frozen=True, slots=True)
+class DuctSpec:
+    """Standard duct specification resolved from dimensions and material (BNPP HVAC STANDARD)."""
+
+    material: str
+    sheet_gauge: str
+    stiffener_spec: str
+    max_spacing: str
+    material_spec: str
+    turning_vanes_required: bool
+
+
 class SpecNotFoundError(LookupError):
     """Raised when a requested spec is not present in the repository."""
 
@@ -36,6 +48,9 @@ class SpecRepository(ABC):
 
     @abstractmethod
     def get_pipe(self, nominal: str, schedule: str) -> PipeSpec: ...
+
+    @abstractmethod
+    def get_duct(self, width: float, height: float, diameter: float, material: str) -> DuctSpec: ...
 
 
 class InMemorySpecRepository(SpecRepository):
@@ -55,6 +70,51 @@ class InMemorySpecRepository(SpecRepository):
             raise SpecNotFoundError(
                 f"No pipe spec for nominal={nominal!r} schedule={schedule!r}"
             ) from exc
+
+    def get_duct(self, width: float, height: float, diameter: float, material: str) -> DuctSpec:
+        mat_norm = material.strip().lower()
+        if "stainless" in mat_norm or "sts" in mat_norm or "sus" in mat_norm:
+            mat_spec = "ASTM A240 Type 304/316 / KS D3698"
+            mat_disp = "Stainless Steel"
+        elif "carbon" in mat_norm or "cs" in mat_norm:
+            mat_spec = "ASTM A36 / KS D3503"
+            mat_disp = "Carbon Steel"
+        else:
+            mat_spec = "ASTM A653 / KS D3506"
+            mat_disp = "Galvanized Steel"
+
+        max_dim = max(width, height) if width > 0 else diameter
+        if max_dim <= 0:
+            max_dim = 400
+
+        if max_dim <= 300:
+            gauge = "22GA (0.85mm)"
+            stiffener = "-"
+            spacing = "-"
+        elif max_dim <= 750:
+            gauge = "20GA (1.0mm)"
+            stiffener = "LK 1½\" x 1½\" x 3/16\""
+            spacing = "1220mm (4'-0\")"
+        elif max_dim <= 1500:
+            gauge = "18GA (1.2mm)"
+            stiffener = "LK 2\" x 2\" x 1/4\""
+            spacing = "1220mm (4'-0\")"
+        else:
+            gauge = "16GA (1.6mm)"
+            stiffener = "LK 2½\" x 2½\" x 1/4\""
+            spacing = "610mm (2'-0\")"
+
+        # Vanes required if rectangular elbow/fitting with sharp turns
+        vanes = width > 0 and height > 0
+
+        return DuctSpec(
+            material=mat_disp,
+            sheet_gauge=gauge,
+            stiffener_spec=stiffener,
+            max_spacing=spacing,
+            material_spec=mat_spec,
+            turning_vanes_required=vanes,
+        )
 
 
 # --- Seed data (carbon steel, Sch40), OD/wall in mm. Extend freely. ----------

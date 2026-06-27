@@ -11,6 +11,7 @@ from collections import defaultdict
 from ..domain.components import CrossSection, Metadata, Network, Node, Run
 from ..domain.enums import DesignMode, DuctShape
 from ..domain.geometry import Vec3
+from ..specs.repository import SpecRepository
 from .base import InputParser, ParseError, Row, parse_fitting
 
 
@@ -20,10 +21,13 @@ class DuctInputParser(InputParser):
     Expected row fields::
 
         run_id, seq, x, y, z, shape, width, height, diameter, fitting,
-        drawing_no, fitting_no, joint_no
+        drawing_no, fitting_no, joint_no, material
     """
 
     mode = DesignMode.DUCT
+
+    def __init__(self, specs: SpecRepository) -> None:
+        self._specs = specs
 
     def parse(self, rows: list[Row]) -> Network:
         if not rows:
@@ -40,7 +44,8 @@ class DuctInputParser(InputParser):
             indexed_rows.sort(key=lambda ir: self._seq_key(ir[1].get("seq"), ir[0]))
             runs.append(self._build_run(run_id, indexed_rows, positions_by_joint))
 
-        return Network(mode=self.mode, runs=runs)
+        error_markers = self.check_joint_compatibility(runs)
+        return Network(mode=self.mode, runs=runs, error_markers=error_markers)
 
     def _build_run(
         self,
@@ -61,12 +66,28 @@ class DuctInputParser(InputParser):
                 row, index, previous_position, positions_by_joint
             )
             previous_position = position
+
+            material = str(row.get("material", "Galvanized Steel"))
+            duct_spec = self._specs.get_duct(section.width, section.height, section.outer_diameter, material)
+
+            extra = _row_extra(row)
+            extra.update({
+                "material": duct_spec.material,
+                "sheetGauge": duct_spec.sheet_gauge,
+                "stiffenerSpec": duct_spec.stiffener_spec,
+                "maxSpacing": duct_spec.max_spacing,
+                "materialSpec": duct_spec.material_spec,
+                "turningVanesRequired": "Yes" if duct_spec.turning_vanes_required else "No",
+            })
+
             metadata = Metadata(
                 drawing_no=str(row.get("drawing_no", "")),
                 fitting_no=str(row.get("fitting_no", "")),
                 joint_no=str(row.get("joint_no", "")),
+                item_no=str(row.get("item_no", row.get("itemNo", ""))),
                 spec=spec_label,
-                extra=_row_extra(row),
+                joint_nos=self._parse_joint_nos(row),
+                extra=extra,
             )
             nodes.append(
                 Node(

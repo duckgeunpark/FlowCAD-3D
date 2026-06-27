@@ -123,6 +123,73 @@ def test_scene_dto_exposes_item_numbers_and_joints(service: GenerationService) -
     assert "JNT-001" in dto.bom[0].jointNos
 
 
+def test_pipe_rows_can_use_direction_length_instead_of_xyz(service: GenerationService) -> None:
+    rows = [
+        {"run_id": "R1", "seq": 1, "joint_no": "J-001",
+         "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R1", "seq": 2, "joint_no": "J-002",
+         "direction": "E", "length": 1000, "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R1", "seq": 3, "joint_no": "J-003",
+         "direction": "U", "length": 500, "nominal": "100A", "schedule": "Sch40"},
+    ]
+
+    scene = service.generate(DesignMode.PIPE, rows)
+    segments = [e for e in scene.elements if e.kind is ComponentKind.PIPE_SEGMENT]
+
+    assert segments[0].params["start"] == pytest.approx([0.0, 0.0, 0.0])
+    assert segments[0].params["end"] == pytest.approx([1000.0, 0.0, 0.0])
+    assert segments[1].params["start"] == pytest.approx([1000.0, 0.0, 0.0])
+    assert segments[1].params["end"] == pytest.approx([1000.0, 0.0, 500.0])
+
+
+def test_repeated_joint_number_reuses_existing_position(service: GenerationService) -> None:
+    rows = [
+        {"run_id": "R1", "seq": 1, "joint_no": "J-A",
+         "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R1", "seq": 2, "joint_no": "J-B",
+         "direction": "E", "length": 1000, "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R2", "seq": 1, "joint_no": "J-B",
+         "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R2", "seq": 2, "joint_no": "J-C",
+         "direction": "N", "length": 700, "nominal": "100A", "schedule": "Sch40"},
+    ]
+
+    scene = service.generate(DesignMode.PIPE, rows)
+    branch_segment = next(e for e in scene.elements if e.id == "R1-SEG000")
+
+    assert branch_segment.params["start"] == pytest.approx([1000.0, 0.0, 0.0])
+    assert branch_segment.params["end"] == pytest.approx([1000.0, 700.0, 0.0])
+
+
+def test_fitting_rotation_is_exposed_and_rectangular_snaps_to_four_directions(
+    service: GenerationService,
+) -> None:
+    pipe_rows = [
+        {"run_id": "R1", "seq": 1, "joint_no": "J-001",
+         "nominal": "100A", "schedule": "Sch40"},
+        {"run_id": "R1", "seq": 2, "joint_no": "J-002", "fitting": "tee",
+         "direction": "E", "length": 1000, "nominal": "100A", "schedule": "Sch40",
+         "rotation": 45},
+        {"run_id": "R1", "seq": 3, "joint_no": "J-003",
+         "direction": "E", "length": 1000, "nominal": "100A", "schedule": "Sch40"},
+    ]
+    duct_rows = [
+        {"run_id": "D1", "seq": 1, "joint_no": "D-001",
+         "shape": "rectangular", "width": 400, "height": 300},
+        {"run_id": "D1", "seq": 2, "joint_no": "D-002", "fitting": "damper",
+         "direction": "E", "length": 1000, "shape": "rectangular",
+         "width": 400, "height": 300, "rotation": 44},
+    ]
+
+    tee = next(e for e in service.generate(DesignMode.PIPE, pipe_rows).elements
+               if e.kind is ComponentKind.TEE)
+    damper = next(e for e in service.generate(DesignMode.DUCT, duct_rows).elements
+                  if e.kind is ComponentKind.DAMPER)
+
+    assert tee.params["rollDeg"] == pytest.approx(45)
+    assert damper.params["rollDeg"] == pytest.approx(0)
+
+
 def test_bounds_cover_geometry(service: GenerationService) -> None:
     scene = service.generate(DesignMode.PIPE, _pipe_rows())
     assert scene.bounds_min.x == 0

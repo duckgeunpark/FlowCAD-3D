@@ -1,4 +1,4 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import type {
   BomRow,
   ComponentKind,
@@ -10,7 +10,8 @@ import type {
 } from "@flowcad/shared";
 
 export type ViewMode = "true_scale" | "iso";
-export type AddFromJointKind = "straight" | "elbow" | "tee" | "valve" | "damper";
+export type LabelMode = "auto" | "all" | "joints" | "none";
+export type AddFromJointKind = "straight" | "elbow" | "tee" | "valve" | "damper" | "reducer";
 type Vec3 = [number, number, number];
 
 interface ViewerState {
@@ -19,8 +20,10 @@ interface ViewerState {
   selectedId: string | null;
   selectedJointId: string | null;
   hoveredId: string | null;
+  hoveredJointId: string | null;
   searchTerm: string;
   viewMode: ViewMode;
+  labelMode: LabelMode;
   error: string | null;
   loading: boolean;
 
@@ -29,9 +32,12 @@ interface ViewerState {
   select: (id: string | null) => void;
   selectJoint: (id: string | null) => void;
   hover: (id: string | null) => void;
+  hoverJoint: (id: string | null) => void;
   addFromJoint: (kind: AddFromJointKind) => void;
+  rotateFitting: (id: string, deltaDeg: number) => void;
   setSearch: (term: string) => void;
   setViewMode: (vm: ViewMode) => void;
+  setLabelMode: (mode: LabelMode) => void;
   setError: (msg: string | null) => void;
   setLoading: (v: boolean) => void;
 }
@@ -42,16 +48,19 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   selectedId: null,
   selectedJointId: null,
   hoveredId: null,
+  hoveredJointId: null,
   searchTerm: "",
   viewMode: "true_scale",
+  labelMode: "auto",
   error: null,
   loading: false,
 
   setMode: (mode) => set({ mode }),
-  setScene: (scene) => set({ scene, selectedId: null, selectedJointId: null, hoveredId: null }),
+  setScene: (scene) => set({ scene, selectedId: null, selectedJointId: null, hoveredId: null, hoveredJointId: null }),
   select: (selectedId) => set({ selectedId, selectedJointId: null }),
   selectJoint: (selectedJointId) => set({ selectedJointId, selectedId: null }),
   hover: (hoveredId) => set({ hoveredId }),
+  hoverJoint: (hoveredJointId) => set({ hoveredJointId }),
   addFromJoint: (kind) => {
     const { scene, selectedJointId, mode } = get();
     if (!scene || !selectedJointId) return;
@@ -72,8 +81,17 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       selectedJointId: null,
     });
   },
+  rotateFitting: (id, deltaDeg) => {
+    const { scene } = get();
+    if (!scene) return;
+    const elements = scene.elements.map((element) =>
+      element.id === id ? rotateElementFitting(element, deltaDeg) : element,
+    );
+    set({ scene: { ...scene, elements } });
+  },
   setSearch: (searchTerm) => set({ searchTerm }),
   setViewMode: (viewMode) => set({ viewMode }),
+  setLabelMode: (labelMode) => set({ labelMode }),
   setError: (error) => set({ error }),
   setLoading: (loading) => set({ loading }),
 }));
@@ -117,7 +135,10 @@ function createElementFromJoint(
   const width = sourceElement.params.width ?? radius * 2;
   const height = sourceElement.params.height ?? radius * 2;
   const baseUserData = {
+    seq: (scene.elements.length + 1).toString(),
     itemNo,
+    connect_to_seq: sourceElement.userData.seq ?? sourceElement.userData.itemNo ?? "",
+    connect_port: sourceJoint.role ?? "out",
     jointNo: sourceJoint.no,
     fittingNo: "",
     drawingNo: sourceElement.userData.drawingNo ?? "",
@@ -132,7 +153,7 @@ function createElementFromJoint(
       : { start, end, radius, direction: dir };
     const joints = [
       connectedJoint(id, sourceJoint, "start", start, dir),
-      openJoint(id, `J-${id}-END`, "end", end, dir),
+      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "end", end, dir),
     ];
     return makeElement(id, itemNo, kind, params, colorFor(kind), { ...baseUserData, length_mm: "1000" }, joints);
   }
@@ -143,11 +164,11 @@ function createElementFromJoint(
     const center = add(start, scale(dir, bendRadius));
     const outPoint = add(center, scale(out, bendRadius));
     const params: ElementParams = sourceElement.params.width != null
-      ? { position: center, radius, width, height, inDirection: dir, outDirection: out, bendRadius, direction: out }
-      : { position: center, radius, inDirection: dir, outDirection: out, bendRadius, direction: out };
+      ? { position: center, radius, width, height, inDirection: dir, outDirection: out, bendRadius, direction: out, rollDeg: 0 }
+      : { position: center, radius, inDirection: dir, outDirection: out, bendRadius, direction: out, rollDeg: 0 };
     const joints = [
       connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-      openJoint(id, `J-${id}-OUT`, "out", outPoint, out),
+      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", outPoint, out),
     ];
     return makeElement(id, itemNo, "elbow", params, colorFor("elbow"), baseUserData, joints);
   }
@@ -160,14 +181,28 @@ function createElementFromJoint(
     const outPoint = add(center, scale(dir, runLength / 2));
     const branchPoint = add(center, scale(branch, branchLength));
     const params: ElementParams = sourceElement.params.width != null
-      ? { position: center, radius, width, height, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength }
-      : { position: center, radius, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength };
+      ? { position: center, radius, width, height, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength, rollDeg: 0 }
+      : { position: center, radius, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength, rollDeg: 0 };
     const joints = [
       connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-      openJoint(id, `J-${id}-OUT`, "out", outPoint, dir),
-      openJoint(id, `J-${id}-BR`, "branch", branchPoint, branch),
+      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", outPoint, dir),
+      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}b`, "branch", branchPoint, branch),
     ];
     return makeElement(id, itemNo, "tee", params, colorFor("tee"), baseUserData, joints);
+  }
+
+  if (addKind === "reducer") {
+    const length = Math.max(radius * 2, 150);
+    const end = add(start, scale(dir, length));
+    const isRound = sourceElement.params.width == null;
+    const params: ElementParams = isRound
+      ? { start, end, direction: dir, fromShape: "round", fromRadius: radius, toShape: "round", toRadius: radius * 0.75 }
+      : { start, end, direction: dir, fromShape: "rectangular", fromWidth: width, fromHeight: height, toShape: "rectangular", toWidth: width * 0.75, toHeight: height * 0.75 };
+    const joints = [
+      connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
+      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", end, dir),
+    ];
+    return makeElement(id, itemNo, "transition", params, colorFor("transition"), baseUserData, joints);
   }
 
   const isDamper = addKind === "damper";
@@ -178,11 +213,11 @@ function createElementFromJoint(
   const end = add(center, scale(dir, half));
   const kind: ComponentKind = isDamper ? "damper" : "valve";
   const params: ElementParams = isDamper
-    ? { position: center, radius, width, height, direction: dir, bodyLength, bladeThickness: Math.max(Math.min(radius * 0.08, 30), 8) }
-    : { position: center, radius, direction: dir, bodyLength, flangeRadius: radius * 1.25, flangeThickness, handleRadius: radius * 1.35 };
+    ? { position: center, radius, width, height, direction: dir, bodyLength, bladeThickness: Math.max(Math.min(radius * 0.08, 30), 8), rollDeg: 0 }
+    : { position: center, radius, direction: dir, bodyLength, flangeRadius: radius * 1.25, flangeThickness, handleRadius: radius * 1.35, rollDeg: 0 };
   const joints = [
     connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-    openJoint(id, `J-${id}-OUT`, "out", end, dir),
+    openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", end, dir),
   ];
   return makeElement(id, itemNo, kind, params, colorFor(kind), baseUserData, joints);
 }
@@ -219,6 +254,53 @@ function bomRowFor(element: SceneElement): BomRow {
     spec: element.userData.spec ?? "",
     lengthMm: Number(element.userData.length_mm ?? 0),
   };
+}
+
+function rotateElementFitting(element: SceneElement, deltaDeg: number): SceneElement {
+  if (!["elbow", "tee", "valve", "damper"].includes(element.kind)) return element;
+
+  const snap = element.params.width != null || element.params.height != null;
+  const delta = snap ? Math.sign(deltaDeg || 1) * 90 : deltaDeg;
+  const nextRoll = normalizeAngle((element.params.rollDeg ?? 0) + delta, snap);
+  const params: ElementParams = { ...element.params, rollDeg: nextRoll };
+  let joints = element.joints;
+
+  if (element.kind === "tee") {
+    const axis = normalize(params.mainDirection ?? params.direction ?? [1, 0, 0]);
+    const currentBranch = normalize(params.branchDirection ?? perpendicular(axis));
+    const branch = rotateAroundAxis(currentBranch, axis, delta);
+    params.branchDirection = branch;
+    joints = element.joints.map((joint) =>
+      joint.role === "branch" && params.position
+        ? {
+            ...joint,
+            position: add(params.position, scale(branch, params.branchLength ?? Math.max((params.radius ?? 50) * 4, 300))),
+            direction: branch,
+          }
+        : joint,
+    );
+  } else if (element.kind === "elbow") {
+    const axis = normalize(params.inDirection ?? params.direction ?? [1, 0, 0]);
+    const out = rotateAroundAxis(normalize(params.outDirection ?? perpendicular(axis)), axis, delta);
+    params.outDirection = out;
+    params.direction = out;
+    joints = element.joints.map((joint) =>
+      joint.role === "out" && params.position
+        ? {
+            ...joint,
+            position: add(params.position, scale(out, params.bendRadius ?? (params.radius ?? 50) * 3)),
+            direction: out,
+          }
+        : joint,
+    );
+  }
+
+  return { ...element, params, joints };
+}
+
+function normalizeAngle(degrees: number, snap: boolean): number {
+  const value = snap ? Math.round(degrees / 90) * 90 : degrees;
+  return ((value % 360) + 360) % 360;
 }
 
 function nextLocalNumber(scene: SceneDocument): number {
@@ -270,4 +352,22 @@ function normalize(a: Vec3): Vec3 {
 function perpendicular(dir: Vec3): Vec3 {
   const candidate: Vec3 = Math.abs(dir[1]) < 0.9 ? [-dir[2], 0, dir[0]] : [1, 0, 0];
   return normalize(candidate);
+}
+
+function rotateAroundAxis(vector: Vec3, axis: Vec3, degrees: number): Vec3 {
+  const k = normalize(axis);
+  const theta = (degrees * Math.PI) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const cross: Vec3 = [
+    k[1] * vector[2] - k[2] * vector[1],
+    k[2] * vector[0] - k[0] * vector[2],
+    k[0] * vector[1] - k[1] * vector[0],
+  ];
+  const dot = k[0] * vector[0] + k[1] * vector[1] + k[2] * vector[2];
+  return normalize([
+    vector[0] * cos + cross[0] * sin + k[0] * dot * (1 - cos),
+    vector[1] * cos + cross[1] * sin + k[1] * dot * (1 - cos),
+    vector[2] * cos + cross[2] * sin + k[2] * dot * (1 - cos),
+  ]);
 }

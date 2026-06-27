@@ -7,6 +7,7 @@ and places fitting geometry at nodes whose ``fitting`` is not ``None``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .enums import ComponentKind, DesignMode, DuctShape
 from .geometry import Vec3
@@ -19,7 +20,9 @@ class Metadata:
     drawing_no: str = ""
     fitting_no: str = ""
     joint_no: str = ""
+    item_no: str = ""
     spec: str = ""
+    joint_nos: list[str] = field(default_factory=list)
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -64,3 +67,4 @@ class Network:
 
     mode: DesignMode
     runs: list[Run] = field(default_factory=list)
+    error_markers: list[dict[str, Any]] = field(default_factory=list)

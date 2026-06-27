@@ -41,6 +41,7 @@ export interface ElementParams {
   flangeThickness?: number;
   handleRadius?: number;
   bladeThickness?: number;
+  rollDeg?: number;
   fromShape?: "rectangular" | "round";
   toShape?: "rectangular" | "round";
   fromWidth?: number;

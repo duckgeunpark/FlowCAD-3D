@@ -69,9 +69,35 @@ export function ElementMesh(props: ElementVisualProps) {
       return <ValveFitting {...props} />;
     case "damper":
       return <DamperFitting {...props} />;
+    case "error_marker":
+      return <ErrorMarkerMesh {...props} />;
     default:
       return null;
   }
+}
+
+function ErrorMarkerMesh(p: ElementVisualProps) {
+  const { params } = p.element;
+  const pos = useMemo(() => toThree(params.position ?? [0, 0, 0]), [params.position]);
+  return (
+    <group position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
+      {/* 붉은색 점멸 느낌표 형상 기둥 */}
+      <mesh position={[0, 150, 0]}>
+        <cylinderGeometry args={[25, 10, 200, 16]} />
+        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={0.6} roughness={0.3} />
+      </mesh>
+      {/* ❗ 느낌표 하단 점 */}
+      <mesh position={[0, 20, 0]}>
+        <sphereGeometry args={[22, 16, 16]} />
+        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={0.6} roughness={0.3} />
+      </mesh>
+      {/* 반투명 붉은색 경고 박스 영역 */}
+      <mesh>
+        <boxGeometry args={[300, 300, 300]} />
+        <meshStandardMaterial color="#ef4444" transparent opacity={0.3} wireframe />
+      </mesh>
+    </group>
+  );
 }
 
 function useMaterialColor(p: ElementVisualProps): {
@@ -213,6 +239,10 @@ function ValveFitting(p: ElementVisualProps) {
   const flangeThickness = params.flangeThickness ?? radius * 0.28;
   const handleRadius = params.handleRadius ?? radius * 1.35;
   const side = useMemo(() => perpendicularTo(dir), [dir]);
+  const rolledSide = useMemo(
+    () => rotateAroundAxis(side, dir, params.rollDeg ?? 0),
+    [side, dir, params.rollDeg],
+  );
   return (
     <group position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
       <LocalCylinder
@@ -241,8 +271,8 @@ function ValveFitting(p: ElementVisualProps) {
       />
       <LocalCylinder
         p={p}
-        start={side.clone().multiplyScalar(-handleRadius).add(new Vector3(0, radius * 2.4, 0))}
-        end={side.clone().multiplyScalar(handleRadius).add(new Vector3(0, radius * 2.4, 0))}
+        start={rolledSide.clone().multiplyScalar(-handleRadius).add(new Vector3(0, radius * 2.4, 0))}
+        end={rolledSide.clone().multiplyScalar(handleRadius).add(new Vector3(0, radius * 2.4, 0))}
         radius={Math.max(radius * 0.10, 7)}
       />
     </group>
@@ -260,6 +290,7 @@ function DamperFitting(p: ElementVisualProps) {
   const width = params.width ?? radius * 2;
   const height = params.height ?? radius * 2;
   const quat = useMemo(() => new Quaternion().setFromUnitVectors(UP, dir), [dir]);
+  const rollRad = ((params.rollDeg ?? 0) * Math.PI) / 180;
   return (
     <group position={pos} quaternion={quat} {...interactionHandlers(p)} userData={p.element.userData}>
       {isRound ? (
@@ -273,14 +304,16 @@ function DamperFitting(p: ElementVisualProps) {
           {StandardMaterial(p, 0.25, 0.6)}
         </mesh>
       )}
-      <mesh>
-        <boxGeometry args={[width * 0.92, bladeThickness, Math.max(height * 0.08, 12)]} />
-        <meshStandardMaterial color="#2f3742" metalness={0.35} roughness={0.5} />
-      </mesh>
-      <mesh rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[Math.max(height * 0.035, 8), Math.max(height * 0.035, 8), width * 1.15, 16]} />
-        <meshStandardMaterial color="#202833" metalness={0.5} roughness={0.45} />
-      </mesh>
+      <group rotation={[0, rollRad, 0]}>
+        <mesh>
+          <boxGeometry args={[width * 0.92, bladeThickness, Math.max(height * 0.08, 12)]} />
+          <meshStandardMaterial color="#2f3742" metalness={0.35} roughness={0.5} />
+        </mesh>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[Math.max(height * 0.035, 8), Math.max(height * 0.035, 8), width * 1.15, 16]} />
+          <meshStandardMaterial color="#202833" metalness={0.5} roughness={0.45} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -430,4 +463,8 @@ function toThreeDirection(value: [number, number, number]): Vector3 {
 function perpendicularTo(axis: Vector3): Vector3 {
   const ref = Math.abs(axis.dot(Z_AXIS)) > 0.9 ? X_AXIS : Z_AXIS;
   return new Vector3().crossVectors(axis, ref).normalize();
+}
+
+function rotateAroundAxis(vector: Vector3, axis: Vector3, degrees: number): Vector3 {
+  return vector.clone().applyAxisAngle(axis.clone().normalize(), (degrees * Math.PI) / 180).normalize();
 }

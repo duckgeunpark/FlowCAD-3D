@@ -40,6 +40,10 @@ _FITTING_ALIASES: dict[str, ComponentKind] = {
     "valve": ComponentKind.VALVE,
     "damper": ComponentKind.DAMPER,
     "transition": ComponentKind.TRANSITION,
+    "reducer": ComponentKind.TRANSITION,
+    "레듀샤": ComponentKind.TRANSITION,
+    "레듀서": ComponentKind.TRANSITION,
+    "트랜지션": ComponentKind.TRANSITION,
 }
 
 _DIRECTION_VECTORS: dict[str, Vec3] = {
@@ -125,15 +129,21 @@ class InputParser(ABC):
     ) -> Vec3:
         """Resolve either explicit x/y/z or drawing-style direction+length input.
 
-        If a row repeats an existing ``joint_no``, it reuses that coordinate so
-        separate rows/runs with the same joint number are treated as connected.
-        Otherwise, when x/y/z are absent, the point is inferred from the
-        previous point plus ``direction`` * ``length``. The first inferred point
-        starts at the origin, optionally with ``elevation``/``z``.
+        Supports Plan_v2 'connect_to_seq' topological reference as well as 'joint_no'.
         """
-        joint_no = str(row.get("joint_no", "")).strip()
-        if joint_no and joint_no in positions_by_joint:
-            return positions_by_joint[joint_no]
+        connect_to = str(row.get("connect_to_seq", "")).strip()
+        jnos = self._parse_joint_nos(row)
+        
+        # 1. 명시적 조인트 번호(joint_no 또는 joint_nos의 첫 값) 확인 (있으면 좋고)
+        explicit_joint = str(row.get("joint_no", "")).strip()
+        if not explicit_joint and jnos and not jnos[0].startswith("sw_seq_"):
+            explicit_joint = jnos[0]
+
+        if explicit_joint and explicit_joint in positions_by_joint:
+            previous = positions_by_joint[explicit_joint]
+        elif connect_to and f"seq_{connect_to}" in positions_by_joint:
+            # 2. 명시적 조인트가 없거나 미등록 상태면 connect_to_seq 기반 추적 (없으면 말고)
+            previous = positions_by_joint[f"seq_{connect_to}"]
 
         if self._has_explicit_xyz(row):
             position = Vec3(
@@ -153,9 +163,109 @@ class InputParser(ABC):
             direction = self._direction_vector(row.get("direction", row.get("dir", "E")), index)
             position = previous + direction.scaled(length)
 
-        if joint_no:
-            positions_by_joint[joint_no] = position
+        if explicit_joint:
+            positions_by_joint[explicit_joint] = position
+        if jnos:
+            for jn in jnos:
+                positions_by_joint[jn] = position
+
+        seq = str(row.get("seq", row.get("item_no", ""))).strip()
+        if seq:
+            positions_by_joint[f"seq_{seq}"] = position
         return position
+
+    @staticmethod
+    def _parse_joint_nos(row: Row) -> list[str]:
+        val = row.get("joint_nos", row.get("joint_no", ""))
+        connect_to = str(row.get("connect_to_seq", "")).strip()
+        seq = str(row.get("seq", row.get("item_no", ""))).strip()
+        
+        results: list[str] = []
+        if isinstance(val, list):
+            results = [str(v).strip() for v in val if str(v).strip()]
+        elif isinstance(val, str) and val:
+            results = [s.strip() for s in val.split(",") if s.strip()]
+            
+        # Plan_v2 virtual joint stitching when explicit joint_nos are absent
+        if not results and connect_to:
+            results.append(f"sw_seq_{connect_to}")
+            if seq:
+                results.append(f"sw_seq_{seq}")
+        return results
+
+    def check_joint_compatibility(self, runs: list[Run]) -> list[dict[str, Any]]:
+        """Design Rule Checking (DRC): verify if components sharing a joint have matching sections.
+
+        Incorporates Plan_v2 catalog validation and section continuity check.
+        """
+        from ..engine.catalog import get_part_family
+
+        joints_map: dict[str, list[tuple[Node, Run]]] = {}
+        error_markers: list[dict[str, Any]] = []
+
+        for run in runs:
+            for node in run.nodes:
+                # 1. Catalog family requirement validation
+                sec = node.section or run.section
+                family = get_part_family(node.fitting, sec.shape, self.mode.value)
+                params_dict = {
+                    "diameter": getattr(sec, "outer_diameter", None),
+                    "width": getattr(sec, "width", None),
+                    "height": getattr(sec, "height", None),
+                    "length": getattr(node.metadata, "length_mm", 1000),
+                }
+                if not family.validate_params(params_dict):
+                    error_markers.append({
+                        "joint_no": node.metadata.joint_no or "UNKNOWN",
+                        "position": node.position,
+                        "desc": f"[{family.family_name}] 필수 파라미터 누락: {family.required_params}",
+                    })
+
+                # 2. Joint grouping
+                jnos = node.metadata.joint_nos or ([node.metadata.joint_no] if node.metadata.joint_no else [])
+                for jno in jnos:
+                    if jno:
+                        if jno not in joints_map:
+                            joints_map[jno] = []
+                        joints_map[jno].append((node, run))
+
+        for jno, items in joints_map.items():
+            if len(items) < 2:
+                continue
+
+            # Check if there's any fitting/transition at this joint
+            has_fitting = any(node.fitting in (ComponentKind.TRANSITION, ComponentKind.TEE) for node, _ in items)
+            if has_fitting:
+                continue
+
+            # Compare cross sections of connected items
+            first_node, first_run = items[0]
+            first_sec = first_node.section or first_run.section
+            for node, run in items[1:]:
+                sec = node.section or run.section
+                mismatch = False
+                desc = ""
+                if first_sec.shape != sec.shape:
+                    mismatch = True
+                    desc = f"단면 형상 불일치: {first_sec.shape.value} vs {sec.shape.value} (피팅/트랜지션 누락)"
+                elif first_sec.shape.value == "rectangular":
+                    if abs(first_sec.width - sec.width) > 1e-3 or abs(first_sec.height - sec.height) > 1e-3:
+                        mismatch = True
+                        desc = f"덕트 치수 불일치: {first_sec.width}x{first_sec.height} vs {sec.width}x{sec.height}"
+                elif first_sec.shape.value == "round":
+                    if abs(first_sec.outer_diameter - sec.outer_diameter) > 1e-3:
+                        mismatch = True
+                        desc = f"관경 불일치: D{first_sec.outer_diameter} vs D{sec.outer_diameter}"
+
+                if mismatch:
+                    error_markers.append({
+                        "joint_no": jno,
+                        "position": node.position,
+                        "desc": f"[조인트 {jno}] {desc}",
+                    })
+                    break  # One error marker per joint is sufficient
+
+        return error_markers
 
     @staticmethod
     def _has_explicit_xyz(row: Row) -> bool:
@@ -180,4 +290,5 @@ class InputParser(ABC):
         raise ParseError(
             f"direction must be E/W/N/S/U/D or x,y,z vector, got {value!r}",
             row_index=index,
-        )
+            )
+

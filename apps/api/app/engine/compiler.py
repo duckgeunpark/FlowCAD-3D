@@ -39,4 +39,6 @@ class NetworkCompiler:
                     builder.add(
                         self._factory.build_fitting(run, node, eid, prev_node, next_node)
                     )
+        for err_idx, marker in enumerate(network.error_markers):
+            builder.add(self._factory.build_error_marker(marker, f"ERR-{err_idx:03d}"))
         return builder.build()

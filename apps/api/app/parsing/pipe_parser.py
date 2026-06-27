@@ -39,7 +39,8 @@ class PipeInputParser(InputParser):
             indexed_rows.sort(key=lambda ir: self._seq_key(ir[1].get("seq"), ir[0]))
             runs.append(self._build_run(run_id, indexed_rows, positions_by_joint))
 
-        return Network(mode=self.mode, runs=runs)
+        error_markers = self.check_joint_compatibility(runs)
+        return Network(mode=self.mode, runs=runs, error_markers=error_markers)
 
     def _build_run(
         self,
@@ -71,7 +72,9 @@ class PipeInputParser(InputParser):
                 drawing_no=str(row.get("drawing_no", "")),
                 fitting_no=str(row.get("fitting_no", "")),
                 joint_no=str(row.get("joint_no", "")),
+                item_no=str(row.get("item_no", row.get("itemNo", ""))),
                 spec=spec_label,
+                joint_nos=self._parse_joint_nos(row),
                 extra=_row_extra(row),
             )
             nodes.append(

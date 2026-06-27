@@ -94,4 +94,5 @@ _DESCRIPTIONS: dict[ComponentKind, str] = {
     ComponentKind.VALVE: "Valve",
     ComponentKind.TRANSITION: "Transition",
     ComponentKind.DAMPER: "Damper",
+    ComponentKind.ERROR_MARKER: "Design Rule Error Marker",
 }
