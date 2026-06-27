@@ -93,6 +93,12 @@
   },
   "hotPaths": [
     {
+      "path": "apps\\api\\app\\engine\\assembly.py",
+      "accessCount": 7,
+      "lastAccessed": 1782545723210,
+      "type": "file"
+    },
+    {
       "path": "apps\\api\\app\\engine\\geometry_factory.py",
       "accessCount": 2,
       "lastAccessed": 1782545190462,
@@ -222,12 +228,6 @@
       "path": "apps\\api\\app\\domain\\geometry.py",
       "accessCount": 1,
       "lastAccessed": 1782534490993,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\engine\\assembly.py",
-      "accessCount": 1,
-      "lastAccessed": 1782545190442,
       "type": "file"
     },
     {

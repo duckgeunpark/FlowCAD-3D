@@ -277,8 +277,12 @@ class AssemblyResolver:
             jnos = [str(j).strip() for j in jnos_raw if str(j).strip()]
         else:
             jnos = [s.strip() for s in str(jnos_raw or "").split(",") if s.strip()]
+        # NOTE: ``angle`` is deliberately excluded — for an elbow it is the turn
+        # magnitude (already captured by in/out directions), not a fitting roll.
+        # Including it would make GeometryFactory._roll_degrees mis-read a 90°
+        # turn as a 90° roll and surface it in the DetailPanel.
         extra: dict[str, str] = {}
-        for key in ("rotation", "rotation_deg", "angle", "orientation", "note", "material", "spec"):
+        for key in ("rotation", "rotation_deg", "orientation", "note", "material", "spec"):
             value = row.get(key)
             if value not in (None, ""):
                 extra[key] = str(value)
@@ -319,6 +323,9 @@ class AssemblyResolver:
             part_type = str(row.get("part_type", row.get("item_type", "straight")))
             role, kind = _classify(part_type)
 
+            if seq in parts:
+                raise AssemblyError(f"중복된 seq 값: {seq}", seq=seq)
+
             connect_to = str(row.get("connect_to_seq", "")).strip()
             connect_port = str(row.get("connect_port", "")).strip().lower() or "end"
             parent = parts.get(connect_to) if connect_to else None
@@ -338,7 +345,9 @@ class AssemblyResolver:
             prev_section = parent.out_section if parent is not None else None
             section, spec_label = self._resolve_section(row, system_type, prev_section, seq)
             metadata = self._metadata(row, spec_label)
-            length = _num(row.get("length")) or 0.0
+            length = _num(row.get("length"))
+            if length is None:
+                length = 0.0
 
             resolved = self._place(
                 seq, role, kind, system_type, section, prev_section,
@@ -352,6 +361,14 @@ class AssemblyResolver:
                 marker = self._check_rule(parent, resolved, connect_port, entry_pos)
                 if marker is not None:
                     errors.append(marker)
+            elif connect_to:
+                # A named connection target that does not exist: surface it instead
+                # of silently re-rooting this part 4 m away.
+                errors.append({
+                    "joint_no": resolved.metadata.joint_no or seq,
+                    "position": entry_pos,
+                    "desc": f"[seq {seq}] 연결 대상 seq '{connect_to}' 를 찾을 수 없음",
+                })
 
         _assign_neighbors(parts, children)
         return order, errors
@@ -377,7 +394,12 @@ class AssemblyResolver:
                                 metadata, ports)
 
         if role == "fitting" and kind is ComponentKind.TEE:
-            roll = _num(row.get("rotation")) or _num(row.get("angle")) or 0.0
+            roll = _num(row.get("rotation"))
+            roll = 0.0 if roll is None else roll
+            # Rectangular branches snap to 90° to match GeometryFactory._roll_degrees,
+            # so the branch port and any child placed on it point the same way.
+            if section.shape is DuctShape.RECTANGULAR:
+                roll = round(roll / 90.0) * 90.0
             branch = _rotate_axis(_perp_in_plan(h_in), h_in, roll)
             ports = {
                 "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
@@ -483,12 +505,14 @@ def _assign_neighbors(
             child = parts.get(child_seq)
             if child is None:
                 continue
-            # child's start touches parent's port -> child.start_neighbor = parent fitting
-            if parent.kind is not None and parent.role in ("fitting",):
+            # Only *corner* fittings (elbow/tee) have their centerline at the
+            # connection point, so abutting straights must be trimmed back to the
+            # fitting face. Inline fittings (valve/damper) already expose their
+            # ports ON their faces, so trimming would open a gap on each side.
+            if parent.kind in _CORNER_FITTINGS:
                 if child.start_neighbor is None:
                     child.start_neighbor = parent.kind
-            # parent's downstream end touches a fitting child
-            if child.kind is not None and child.role in ("fitting",) and port in ("end", "out"):
+            if child.kind in _CORNER_FITTINGS and port in ("end", "out"):
                 if parent.end_neighbor is None and parent.role == "segment":
                     parent.end_neighbor = child.kind
 
