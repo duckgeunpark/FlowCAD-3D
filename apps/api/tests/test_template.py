@@ -27,14 +27,18 @@ def test_template_roundtrip_pipe() -> None:
     # one example row is included in the template
     assert len(rows) == 1
     assert set(columns_for(DesignMode.PIPE)).issuperset(rows[0].keys())
-    assert rows[0]["nominal"] == "100A"
+    assert rows[0]["system_type"] == "pipe"
+    assert rows[0]["part_type"] == "straight"
+    assert float(rows[0]["size_a"]) == 100
 
 
 def test_template_roundtrip_duct() -> None:
     data = build_template_xlsx(DesignMode.DUCT)
     rows = load_table("t.xlsx", data)
-    assert rows[0]["shape"] == "rectangular"
-    assert float(rows[0]["width"]) == 400
+    assert rows[0]["system_type"] == "duct"
+    assert rows[0]["part_type"] == "straight"
+    assert float(rows[0]["size_a"]) == 500
+    assert float(rows[0]["size_b"]) == 300
 
 
 def test_load_table_csv_path() -> None:
@@ -45,11 +49,11 @@ def test_load_table_csv_path() -> None:
 
 
 def test_uploaded_template_generates_scene() -> None:
-    """A filled template flows back through generation end-to-end."""
+    """A filled template flows back through generation end-to-end (Plan_v2 assembly)."""
     data = build_template_xlsx(DesignMode.PIPE)
     rows = load_table("t.xlsx", data)
-    rows.append({**rows[0], "seq": 2, "x": 1500, "joint_no": "JNT-002",
-                 "fitting": "elbow"})
+    rows.append({"seq": 2, "system_type": "pipe", "part_type": "elbow",
+                 "angle": 90, "connect_to_seq": 1, "connect_port": "end"})
     gen = GenerationService(InMemorySpecRepository())
     scene = gen.generate(DesignMode.PIPE, rows)
     assert len(scene.elements) >= 2

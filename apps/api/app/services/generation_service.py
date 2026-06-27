@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..domain.enums import DesignMode
 from ..domain.scene import SceneDocument
+from ..engine.assembly import build_assembly_scene, is_assembly_input
 from ..engine.compiler import NetworkCompiler
 from ..parsing.base import Row
 from ..parsing.factory import ParserFactory
@@ -26,6 +27,12 @@ class GenerationService:
         self._compiler = compiler or NetworkCompiler()
 
     def generate(self, mode: DesignMode, rows: list[Row]) -> SceneDocument:
+        # Plan_v2 assembly input (rows carry a ``part_type``): the user supplies
+        # only assembly order + connectivity + angles, and the engine computes
+        # every position. Legacy x/y/z and direction+length rows keep the
+        # original parser path.
+        if is_assembly_input(rows):
+            return build_assembly_scene(mode, rows, self._specs)
         parser = self._parsers.for_mode(mode)
         network = parser.parse(rows)
         return self._compiler.compile(network)

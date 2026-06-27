@@ -18,7 +18,8 @@ export type ComponentKind =
   | "valve"
   | "duct_segment"
   | "transition"
-  | "damper";
+  | "damper"
+  | "error_marker";
 
 /** Kind-specific geometry parameters (see backend GeometryFactory). */
 export interface ElementParams {

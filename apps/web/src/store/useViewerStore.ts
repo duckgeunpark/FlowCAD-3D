@@ -320,6 +320,7 @@ function colorFor(kind: ComponentKind): string {
     valve: "#d56c6c",
     transition: "#b07cd5",
     damper: "#d59a4f",
+    error_marker: "#ef4444",
   }[kind];
 }
 
@@ -332,6 +333,7 @@ function descriptionFor(kind: ComponentKind): string {
     valve: "Valve",
     transition: "Transition",
     damper: "Damper",
+    error_marker: "Error Marker",
   }[kind];
 }
 

@@ -14,39 +14,30 @@ interface TableEditorProps {
 
 const LABELS: Record<string, string> = {
   seq: "순번",
-  item_no: "부품 번호",
-  item_type: "부품 종류",
+  system_type: "계통",
+  part_type: "부품 종류",
+  spec: "규격코드",
+  size_a: "치수A",
+  size_b: "치수B",
+  length: "길이(mm)",
+  angle: "각도°",
   connect_to_seq: "연결 대상",
   connect_port: "연결 포트",
-  joint_nos: "조인트 No",
-  direction: "방향",
-  length: "길이(mm)",
-  nominal: "호칭경",
-  schedule: "스케줄",
-  shape: "형상",
-  width: "폭",
-  height: "높이",
-  diameter: "직경",
-  material: "자재 재질",
-  rotation: "회전°",
-  drawing_no: "도면번호",
-  fitting_no: "피팅번호",
+  note: "비고",
 };
 
 const PLACEHOLDERS: Record<string, string> = {
   seq: "1",
-  item_no: "item 1",
-  item_type: "pipe/duct/elbow",
-  connect_to_seq: "1",
-  connect_port: "end/out",
-  joint_nos: "sw001, sw002",
-  direction: "E/N/U",
+  system_type: "pipe/duct",
+  part_type: "straight/elbow/tee/reducer",
+  spec: "SCH40 / GI",
+  size_a: "직경 또는 가로",
+  size_b: "세로(사각만)",
   length: "2000",
-  nominal: "100A",
-  schedule: "Sch40",
-  shape: "rectangular/round",
-  material: "Galvanized",
-  rotation: "0",
+  angle: "45 / 90",
+  connect_to_seq: "1",
+  connect_port: "end/out/branch",
+  note: "비고",
 };
 
 export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
@@ -91,35 +82,20 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
 
   const addRow = () => {
     const blank: TableRow = Object.fromEntries(columns.map((c) => [c, ""]));
+    const lastRow = rows[rows.length - 1];
     blank.seq = rows.length + 1;
-    blank.item_no = `item ${rows.length + 1}`;
-    blank.item_type = mode === "pipe" ? "pipe" : "duct";
+    blank.system_type = mode;
+    blank.part_type = "straight";
     blank.connect_to_seq = rows.length > 0 ? rows.length : "";
     blank.connect_port = rows.length > 0 ? "end" : "start";
-    blank.direction = "E";
     blank.length = 1000;
-    const lastRow = rows[rows.length - 1];
-    if (lastRow) {
-      blank.material = lastRow.material ?? "";
-      if (mode === "pipe") {
-        blank.nominal = lastRow.nominal ?? "100A";
-        blank.schedule = lastRow.schedule ?? "Sch40";
-      } else {
-        blank.shape = lastRow.shape ?? "rectangular";
-        blank.width = lastRow.width ?? 400;
-        blank.height = lastRow.height ?? 300;
-      }
+    if (mode === "pipe") {
+      blank.spec = lastRow?.spec ?? "SCH40";
+      blank.size_a = lastRow?.size_a ?? 100;
     } else {
-      if (mode === "pipe") {
-        blank.nominal = "100A";
-        blank.schedule = "Sch40";
-        blank.material = "Carbon Steel";
-      } else {
-        blank.shape = "rectangular";
-        blank.width = 400;
-        blank.height = 300;
-        blank.material = "Galvanized";
-      }
+      blank.spec = lastRow?.spec ?? "GI";
+      blank.size_a = lastRow?.size_a ?? 500;
+      blank.size_b = lastRow?.size_b ?? 300;
     }
     onChange([...rows, blank]);
   };
@@ -133,7 +109,7 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
         <div>
           <div className="text-sm font-medium text-gray-200 whitespace-nowrap">입력 테이블</div>
           <div className="text-[11px] text-gray-500">
-            부품 단위로 행을 작성하며, 동일한 조인트 번호(예: sw002)를 공유하는 부품은 자동으로 연결 및 사양을 상속받습니다. 단면 불일치 시 3D 공간에 경고 마커(❗)가 표출됩니다.
+            좌표 없이 <b>연결 대상(seq)</b>·<b>연결 포트</b>·<b>각도</b>만 입력하면 위치·방향이 자동 계산됩니다. 규격이 비면 연결된 부품에서 상속되며, 단면 불일치 시 3D 공간에 경고 마커(❗)가 표출됩니다.
           </div>
         </div>
         <div className="flex items-center gap-1.5">

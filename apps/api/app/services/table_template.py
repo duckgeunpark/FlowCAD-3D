@@ -11,18 +11,19 @@ import io
 from ..domain.enums import DesignMode
 from ..parsing.base import Row
 
-PIPE_COLUMNS = [
-    "run_id", "seq", "joint_no", "fitting", "direction", "length",
-    "nominal", "schedule", "rotation", "drawing_no", "fitting_no",
+# Plan_v2 `user_input` schema: assembly order + connectivity + key dimensions.
+# Positions/orientations are computed by the backend assembly engine.
+_ASSEMBLY_COLUMNS = [
+    "seq", "system_type", "part_type", "spec",
+    "size_a", "size_b", "length", "angle",
+    "connect_to_seq", "connect_port", "note",
 ]
-DUCT_COLUMNS = [
-    "run_id", "seq", "joint_no", "fitting", "direction", "length",
-    "shape", "width", "height", "diameter", "rotation", "drawing_no", "fitting_no",
-]
+PIPE_COLUMNS = _ASSEMBLY_COLUMNS
+DUCT_COLUMNS = _ASSEMBLY_COLUMNS
 
 # One guiding example row per mode (helps users understand units/values).
-_PIPE_EXAMPLE = ["R1", 1, "JNT-001", "", "", "", "100A", "Sch40", "", "DWG-01", ""]
-_DUCT_EXAMPLE = ["D1", 1, "DJ-001", "", "", "", "rectangular", 400, 300, "", "", "DWG-D1", ""]
+_PIPE_EXAMPLE = [1, "pipe", "straight", "SCH40", 100, "", 3000, "", "", "start", "시작 배관"]
+_DUCT_EXAMPLE = [1, "duct", "straight", "GI", 500, 300, 1500, "", "", "start", "시작 덕트"]
 
 
 def columns_for(mode: DesignMode) -> list[str]:

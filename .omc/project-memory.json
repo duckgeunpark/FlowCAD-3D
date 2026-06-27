@@ -18,8 +18,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": null,
-    "testCommand": null,
+    "buildCommand": "cd \"C:/Users/USER/Project/CD/FlowCAD 3D\" && npm run build:web 2>&1 | tail -30; echo \"EXIT=${PIPESTATUS[0]}\"",
+    "testCommand": "cd \"C:\\Users\\USER\\Project\\CD\\FlowCAD 3D/apps/api\" && python -m pytest tests/test_assembly.py -q 2>&1 | tail -20",
     "lintCommand": null,
     "devCommand": null,
     "scripts": {
@@ -93,6 +93,42 @@
   },
   "hotPaths": [
     {
+      "path": "apps\\api\\app\\engine\\geometry_factory.py",
+      "accessCount": 2,
+      "lastAccessed": 1782545190462,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\services\\generation_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1782545197650,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\domain\\components.py",
+      "accessCount": 2,
+      "lastAccessed": 1782545199714,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\lib\\sampleData.ts",
+      "accessCount": 2,
+      "lastAccessed": 1782545378370,
+      "type": "file"
+    },
+    {
+      "path": "packages\\shared\\src\\scene.ts",
+      "accessCount": 2,
+      "lastAccessed": 1782545378689,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web",
+      "accessCount": 2,
+      "lastAccessed": 1782545457538,
+      "type": "directory"
+    },
+    {
       "path": "README.md",
       "accessCount": 1,
       "lastAccessed": 1782534274006,
@@ -102,18 +138,6 @@
       "path": "apps\\web\\src\\components\\TableEditor.tsx",
       "accessCount": 1,
       "lastAccessed": 1782534281476,
-      "type": "file"
-    },
-    {
-      "path": "packages\\shared\\src\\scene.ts",
-      "accessCount": 1,
-      "lastAccessed": 1782534281883,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\lib\\sampleData.ts",
-      "accessCount": 1,
-      "lastAccessed": 1782534282332,
       "type": "file"
     },
     {
@@ -135,12 +159,6 @@
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\domain\\components.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534430504,
-      "type": "file"
-    },
-    {
       "path": "apps\\api\\app\\domain\\scene.py",
       "accessCount": 1,
       "lastAccessed": 1782534431457,
@@ -150,12 +168,6 @@
       "path": "apps\\api\\app\\parsing\\pipe_parser.py",
       "accessCount": 1,
       "lastAccessed": 1782534432097,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\engine\\geometry_factory.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534432397,
       "type": "file"
     },
     {
@@ -210,6 +222,24 @@
       "path": "apps\\api\\app\\domain\\geometry.py",
       "accessCount": 1,
       "lastAccessed": 1782534490993,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\engine\\assembly.py",
+      "accessCount": 1,
+      "lastAccessed": 1782545190442,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\services\\table_template.py",
+      "accessCount": 1,
+      "lastAccessed": 1782545198015,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\tests\\test_assembly.py",
+      "accessCount": 1,
+      "lastAccessed": 1782545199578,
       "type": "file"
     }
   ],
