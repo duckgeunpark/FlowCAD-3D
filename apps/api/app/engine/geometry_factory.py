@@ -211,12 +211,21 @@ class GeometryFactory:
         else:
             params["radius"] = radius * _FITTING_SCALE.get(kind, 1.0)
         joints = _fitting_joints(eid, kind, node, radius, params, in_dir, out_dir)
+        # Per-piece developed length so the BOM/detail shows the fitting's own
+        # length (the elbow's arc, the tee's run), not a blank.
+        extra_ud: dict[str, str] = {}
+        if kind is ComponentKind.ELBOW and in_dir and out_dir:
+            extra_ud["length_mm"] = str(
+                round(_elbow_arc_length(in_dir, out_dir, float(params["bendRadius"])), 1)
+            )
+        elif kind is ComponentKind.TEE:
+            extra_ud["length_mm"] = str(round(float(params.get("runLength", 0.0)), 1))
         return SceneElement(
             id=eid,
             kind=kind,
             params=params,
             color=_PALETTE.get(kind, "#ffffff"),
-            user_data=self._user_data(node, run=run),
+            user_data=self._user_data(node, extra=extra_ud or None, run=run),
             joints=joints,
         )
 
@@ -325,6 +334,32 @@ def _rect_elbow_bend_radius(section: CrossSection) -> float:
     return max(section.width, 1.0)
 
 
+def elbow_bend_radius(section: CrossSection) -> float:
+    """Elbow leg length (corner→connection face) for any duct/pipe section.
+
+    Rectangular ducts follow the BNPP throat rule (see ``_rect_elbow_bend_radius``);
+    round pipe/duct uses the catalogued long-radius bend (``OD*1.5``) or ``3*r``.
+    Shared by the geometry factory and the assembly placement so the elbow's legs
+    and the surrounding straights agree on where the connection faces sit.
+    """
+    if section.shape is DuctShape.ROUND:
+        radius = GeometryFactory._nominal_radius(section)
+        return section.bend_radius or radius * 3.0
+    return _rect_elbow_bend_radius(section)
+
+
+def _elbow_arc_length(in_dir: list[float], out_dir: list[float], bend: float) -> float:
+    """Developed centerline length of an elbow that turns from ``in_dir`` to
+    ``out_dir`` with leg/tangent length ``bend``. R_centerline = bend*tan((π-θ)/2),
+    arc = R_centerline * θ, where θ is the turn angle. (90°, W: ≈ 1.571*W.)"""
+    cos_t = max(-1.0, min(1.0, sum(a * b for a, b in zip(in_dir, out_dir))))
+    theta = math.acos(cos_t)
+    if theta <= 1e-6:
+        return 0.0
+    r_centerline = bend * math.tan((math.pi - theta) / 2.0)
+    return r_centerline * theta
+
+
 def _fitting_clearance(run: Run, node: Node) -> float:
     """Distance from fitting center to straight-run connection face."""
     if node.fitting is None:
@@ -335,9 +370,7 @@ def _fitting_clearance(run: Run, node: Node) -> float:
     kind = node.fitting
 
     if kind is ComponentKind.ELBOW:
-        if section.shape is DuctShape.ROUND:
-            return section.bend_radius or radius * 3.0
-        return _rect_elbow_bend_radius(section)
+        return elbow_bend_radius(section)
     if kind is ComponentKind.TEE:
         # A child on the branch port must trim back by the branch arm length, not
         # the main-run half-length, so its joint meets the tee's branch joint
@@ -357,15 +390,17 @@ def _fitting_clearance(run: Run, node: Node) -> float:
     return radius * _FITTING_SCALE.get(kind, 1.0)
 
 
-def _joint_base(node: Node) -> str:
+def _joint_base(node: Node, position: Vec3) -> str:
     explicit = node.metadata.joint_no.strip()
     if explicit:
         return explicit
-    # Stable fallback: same physical coordinate produces the same joint base.
-    return f"J-{round(node.position.x)}-{round(node.position.y)}-{round(node.position.z)}"
+    # Stable fallback keyed on the joint's own face position (not the fitting's
+    # centerline node), so two ports that physically meet there share one base
+    # even when the fitting's corner is offset from the face (piece model).
+    return f"J-{round(position.x)}-{round(position.y)}-{round(position.z)}"
 
 
-def _joint_no(node: Node, role: str) -> str:
+def _joint_no(node: Node, role: str, position: Vec3) -> str:
     jnos = node.metadata.joint_nos
     # Use the explicit list only when it actually distinguishes ports (>= 2
     # entries). A single value is just ``joint_no`` echoed into a 1-element list
@@ -383,11 +418,15 @@ def _joint_no(node: Node, role: str) -> str:
     # connection side so the two ports meeting there share ONE number (e.g. a
     # segment's ``end`` and the elbow's ``in`` both become ``J-002-IN``). This
     # is what SceneBuilder._resolve_open_joints keys on to detect open ports.
-    base = _joint_base(node)
+    base = _joint_base(node, position)
     if node.fitting is None:
         return base
-    suffix_by_role = {"start": "OUT", "end": "IN", "in": "IN", "out": "OUT", "branch": "BR"}
-    suffix = suffix_by_role.get(role, role.upper())
+    suffix_by_key = {"start": "OUT", "end": "IN", "in": "IN", "out": "OUT", "branch": "BR"}
+    # Normally the segment role implies the suffix (start↔OUT, end↔IN). When the
+    # endpoint abuts a specific fitting port (e.g. a tee branch), match that port
+    # so the straight's joint and the fitting's branch joint share ONE number.
+    key = node.fitting_port if (node.fitting_port and role in ("start", "end")) else role
+    suffix = suffix_by_key.get(key, key.upper())
     return f"{base}-{suffix}"
 
 
@@ -401,7 +440,7 @@ def _joint_port(
 ) -> JointPort:
     return JointPort(
         id=f"{eid}-{role}",
-        no=_joint_no(node, role),
+        no=_joint_no(node, role, position),
         position=list(position.as_tuple()),
         direction=direction,
         role=role,

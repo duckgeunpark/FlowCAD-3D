@@ -94,32 +94,50 @@
   "hotPaths": [
     {
       "path": "apps\\api\\app\\engine\\assembly.py",
-      "accessCount": 11,
-      "lastAccessed": 1782628358302,
+      "accessCount": 27,
+      "lastAccessed": 1782659614118,
       "type": "file"
     },
     {
       "path": "apps\\api\\app\\engine\\geometry_factory.py",
-      "accessCount": 11,
-      "lastAccessed": 1782628649984,
+      "accessCount": 20,
+      "lastAccessed": 1782658175384,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\components\\Viewer.tsx",
+      "accessCount": 16,
+      "lastAccessed": 1782658882282,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\components\\TableEditor.tsx",
+      "accessCount": 12,
+      "lastAccessed": 1782657865406,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\components\\DetailPanel.tsx",
+      "accessCount": 12,
+      "lastAccessed": 1782659745562,
       "type": "file"
     },
     {
       "path": "apps\\web\\src\\three\\GeometryFactory.tsx",
-      "accessCount": 6,
-      "lastAccessed": 1782622504185,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\store\\useViewerStore.ts",
-      "accessCount": 5,
-      "lastAccessed": 1782624707007,
+      "accessCount": 11,
+      "lastAccessed": 1782654867771,
       "type": "file"
     },
     {
       "path": "apps\\api\\tests\\test_assembly.py",
-      "accessCount": 5,
-      "lastAccessed": 1782626182262,
+      "accessCount": 8,
+      "lastAccessed": 1782659793458,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\store\\useViewerStore.ts",
+      "accessCount": 7,
+      "lastAccessed": 1782659721362,
       "type": "file"
     },
     {
@@ -135,27 +153,9 @@
       "type": "file"
     },
     {
-      "path": "apps\\web\\src\\components\\DetailPanel.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1782626241917,
-      "type": "file"
-    },
-    {
       "path": "apps\\web\\src\\components\\BomTable.tsx",
       "accessCount": 4,
       "lastAccessed": 1782626284091,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\components\\TableEditor.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1782626669305,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\components\\Viewer.tsx",
-      "accessCount": 3,
-      "lastAccessed": 1782624733543,
       "type": "file"
     },
     {

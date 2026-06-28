@@ -1,33 +1,30 @@
-# Autopilot Spec — 조인트 정합 버그 + 입력/BOM 통합 UX + 상세 치수
+# Autopilot Spec — Piece 길이 모델 (직관 실길이 + 엘보 자동 길이)
 
 ## 사용자 요청
-1. 아이템 조인트끼리 붙어야 하는데 일부가 **조인트-중앙**으로 붙음.
-2. 설계 입력테이블과 자재명세서(BOM)가 분리돼 비직관적 → **하나로 통합**. 3D 선택 포커스가 BOM에만, 3D 추가도 BOM에만 반영되는 것처럼 보임.
-3. 아이템 상세에 **길이만** 있고 가로·세로·Ø(파이) 값이 없음.
+- 직관 길이 1500인데 3D에서 1050으로 보임 → 직관은 **실제 길이 그대로** 그려야 함.
+- 현재는 직관 길이값에 엘보 몫이 섞임(중심선 모델 + 트림). 잘못됨.
+- 엘보는 **길이 입력 막고** 가로·세로·각도만 입력 → 길이 자동 계산.
+- 총 길이 = 직관 + 엘보, 각 piece 길이를 따로 표시.
 
-## 진단 (근거: 파이프 샘플 조인트 덤프)
-- **티 분기 버그**: 티 분기 조인트는 중심에서 `branchLength`(예 300) 위치인데, 분기 자식 직관은 `_fitting_clearance`가 포트 무관하게 **main run 절반(200)** 으로만 트림 → 자식 조인트가 티 안쪽(중심 방향)으로 100mm 파고듦. 엘보·티 main run은 정상.
-- **UX**: 좌측 탭 2개(입력/BOM). `TableEditor`는 `selectedId`를 하이라이트하지 않음(진단행만). `BomTable`만 selectedId 하이라이트 → "포커스가 BOM에만". `addFromJoint`는 rows에 추가+regenerate하므로 실제로 입력에도 추가되지만 입력탭에선 강조가 없어 안 보이는 것처럼 느껴짐.
-- **상세**: 치수(width/height/radius)는 `element.params`에 있는데 `DetailPanel`은 `userData`만 렌더 → 길이만 보임.
+## 확정 사항
+- 엘보 길이 = **센터라인 호 길이 R×각도** (R=W 기준, 90°·W=500 → ≈785mm).
 
-## 변경 사항 (사용자 확정: 통합 테이블)
-### 백엔드 (apps/api) — 포트 인식 트리밍
-- `domain/components.py::Node`에 `fitting_port: str | None` 추가.
-- `engine/assembly.py::ResolvedPart`에 `start_neighbor_port: str | None` 추가; `_assign_neighbors`에서 부모 포트 저장; `_segment`에서 Node a에 전달.
-- `engine/geometry_factory.py::_fitting_clearance`: TEE가 `fitting_port=="branch"`면 `branchLength`(max(r*4,300)), 아니면 main `runLength/2`. → 분기 자식 조인트가 티 분기 조인트와 정확히 일치.
+## 변경 (중심선/트림 → piece 모델)
+### 백엔드
+- `assembly._segment` → `build_segment(trim=False)`: 직관은 authored 전체 길이 유지.
+- `assembly._place` ELBOW/TEE → 자기 footprint만큼 배치: 엘보 in-face=entry, corner=entry+leg, out-face=corner+leg. 티 center=entry+run_half, out=center+run_half, branch=center+branch_len.
+- `geometry_factory.elbow_bend_radius(section)` 공유 헬퍼(rect=W, round=bend_radius/3r) — 배치·형상·클리어런스 일치.
+- `geometry_factory`: 엘보 `length_mm`=`_elbow_arc_length`(호), 티=runLength → BOM/상세 표시.
+- **조인트 번호**를 노드(코너)가 아닌 **조인트 면 좌표** 기준으로(`_joint_base(node, position)`), 티 분기는 `Node.fitting_port`로 BR 접미사 매칭 → 맞닿는 포트가 한 번호 공유 → 연결 조인트는 닫힘, 자유단만 open.
 
-### 프론트엔드 (apps/web) — 통합 테이블 + 동기화 + 상세
-- 새 통합 테이블: 입력 행(편집) + "입력/물량집계" 보기 토글. 탭 분리 제거(`page.tsx`).
-  - 3D 선택(`selectedId=A{seq}`) → 해당 행 하이라이트 + 스크롤. 행 클릭 → `select(A{seq})`.
-  - 행 추가/삭제/업로드/CSV 유지. 물량집계 = 기존 BOM summary.
-- `DetailPanel`: 치수 섹션 추가 — 사각이면 `W×H`, 원형/배관이면 `Ø(=radius*2)`, + 곡률(엘보 bendRadius) 표시.
+### 프론트엔드
+- 통합 테이블: 엘보/티 `length` 입력 **비활성화**, 계산값 "N (자동)" 표시.
 
-## 인수 기준
-- 티 분기 자식 직관의 시작 조인트 좌표 == 티 분기 조인트 좌표(포트 인식 트림).
-- 엘보/티 main run 회귀 정상.
-- 단일 테이블에서 3D 선택 시 행 하이라이트, 행 클릭 시 3D 선택, 추가 시 행 즉시 표시.
-- DetailPanel에 W×H 또는 Ø 표시.
-- `pytest` 그린, `npm run build:web` 그린.
+## 인수 기준 (충족)
+- 직관 length_mm == authored(트림 없음), 조인트끼리 일치.
+- 엘보 length_mm == R×각도 호 길이.
+- 연결 조인트 닫힘 / 자유단만 open.
+- `pytest` 57 passed, `npm run build:web` 성공.
 
-## 비범위
-Wye/래터럴/마이터(이전 패스 보류분), 게이지 표 정밀 이식.
+## 비범위 (다음)
+- 비-90° 엘보의 센터라인 반경 고정(현재 leg 고정 → 완만한 각도에서 반경 증가). Wye/래터럴/마이터.

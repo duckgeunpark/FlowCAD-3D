@@ -1,6 +1,6 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Bounds,
   Grid,
@@ -9,7 +9,9 @@ import {
   OrthographicCamera,
   PerspectiveCamera,
 } from "@react-three/drei";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import type { MutableRefObject, RefObject } from "react";
+import { Vector3 } from "three";
 import type { JointPort } from "@flowcad/shared";
 import { ElementMesh } from "@/three/GeometryFactory";
 import { toThree } from "@/three/coords";
@@ -18,8 +20,11 @@ import type { AddFromJointKind } from "@/store/useViewerStore";
 
 export function Viewer() {
   const { scene, viewMode } = useViewerStore();
+  const needleRef = useRef<HTMLDivElement>(null);
+  const resetNorthRef = useRef<() => void>(() => {});
 
   return (
+    <div className="relative w-full h-full">
     <Canvas shadows dpr={[1, 2]} className="bg-[#0b0e13]">
       {viewMode === "true_scale" ? (
         // near=0.1 with far=500000 gives a ~5,000,000:1 depth ratio, which
@@ -60,12 +65,84 @@ export function Viewer() {
           <div className="text-gray-400 text-sm width-[300px]">데이터를 생성하면 3D 모델이 표시됩니다.</div>
         </Html>
       )}
+
+      <CompassTracker needleRef={needleRef} resetRef={resetNorthRef} />
     </Canvas>
+    <NorthCompass needleRef={needleRef} onReset={() => resetNorthRef.current()} />
+    </div>
   );
 }
 
 function sceneKey(scene: { elements: { id: string }[] }): string {
   return scene.elements.map((e) => e.id).join("|");
+}
+
+/**
+ * Reads the camera heading every frame and rotates the on-screen compass needle
+ * so it always points at world North (engineering +Y = three +Z). Writes the CSS
+ * transform directly on the DOM node — no React re-render per frame.
+ */
+function CompassTracker({
+  needleRef,
+  resetRef,
+}: {
+  needleRef: RefObject<HTMLDivElement | null>;
+  resetRef: MutableRefObject<() => void>;
+}) {
+  const camera = useThree((s) => s.camera);
+  const forward = useRef(new Vector3()).current;
+  const headingRef = useRef(0);
+  // Which heading currently counts as "North". Double-clicking the compass sets
+  // this to the current heading, recalibrating North to the present view without
+  // moving the camera.
+  const northOffsetRef = useRef(0);
+
+  useFrame(() => {
+    camera.getWorldDirection(forward);
+    // Heading from the forward direction projected onto the ground (X-Z) plane.
+    if (Math.hypot(forward.x, forward.z) < 1e-4) return; // looking straight down
+    const headingDeg = Math.atan2(forward.x, forward.z) * (180 / Math.PI);
+    headingRef.current = headingDeg;
+    const node = needleRef.current;
+    // CSS rotate is clockwise-positive; rotate relative to the calibrated North.
+    if (node) {
+      node.style.transform = `rotate(${headingDeg - northOffsetRef.current}deg)`;
+    }
+  });
+
+  useEffect(() => {
+    resetRef.current = () => {
+      northOffsetRef.current = headingRef.current;
+    };
+  }, [resetRef]);
+
+  return null;
+}
+
+/** Corner compass badge; needle rotated each frame; double-click resets to N-up. */
+function NorthCompass({
+  needleRef,
+  onReset,
+}: {
+  needleRef: RefObject<HTMLDivElement | null>;
+  onReset: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onDoubleClick={onReset}
+      title="더블클릭: 현재 보는 방향을 북쪽으로 재설정"
+      className="absolute top-3 left-3 w-14 h-14 rounded-full bg-panel/80 border border-panelLight backdrop-blur shadow-lg flex items-center justify-center select-none cursor-pointer hover:border-accent"
+    >
+      <div ref={needleRef} className="relative w-full h-full will-change-transform pointer-events-none">
+        <div className="absolute left-1/2 top-1 -translate-x-1/2 flex flex-col items-center">
+          <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[11px] border-l-transparent border-r-transparent border-b-red-500" />
+          <span className="text-[10px] font-bold text-red-400 leading-none mt-0.5">N</span>
+        </div>
+        <div className="absolute left-1/2 bottom-1 -translate-x-1/2 text-[9px] text-gray-500 leading-none">S</div>
+      </div>
+    </button>
+  );
 }
 
 function SceneContent() {

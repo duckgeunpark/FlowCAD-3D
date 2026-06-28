@@ -6,6 +6,7 @@ import {
   CatmullRomCurve3,
   DoubleSide,
   Float32BufferAttribute,
+  Matrix4,
   Quaternion,
   Vector3,
 } from "three";
@@ -26,6 +27,30 @@ const UP = new Vector3(0, 1, 0);
 const X_AXIS = new Vector3(1, 0, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
 
+/**
+ * Orientation for a rectangular section whose local axes are X=width, Y=length,
+ * Z=height. Unlike ``setFromUnitVectors`` (which leaves the roll about the run
+ * axis unpinned, so width/height appear swapped depending on heading), this pins
+ * **height to vertical (world up) and width to horizontal**, so a W×H duct reads
+ * the same — and stays continuous through elbows — regardless of run direction.
+ */
+function rectQuaternion(dir: Vector3): Quaternion {
+  const length = dir.clone().normalize();
+  let height: Vector3;
+  if (Math.abs(length.dot(UP)) > 0.99) {
+    // Vertical run: height can't be world-up; fall back to a horizontal axis.
+    height = new Vector3(0, 0, 1);
+  } else {
+    height = UP.clone().sub(length.clone().multiplyScalar(UP.dot(length))).normalize();
+  }
+  const width = new Vector3().crossVectors(length, height).normalize();
+  // Re-orthogonalize height so (width, length, height) is a right-handed basis.
+  height = new Vector3().crossVectors(width, length).normalize();
+  return new Quaternion().setFromRotationMatrix(
+    new Matrix4().makeBasis(width, length, height),
+  );
+}
+
 /** Position + orientation for a tube/box spanning start -> end. */
 function useSpan(start: [number, number, number], end: [number, number, number]) {
   return useMemo(() => {
@@ -34,11 +59,11 @@ function useSpan(start: [number, number, number], end: [number, number, number])
     const dir = new Vector3().subVectors(b, a);
     const length = dir.length();
     const mid = new Vector3().addVectors(a, b).multiplyScalar(0.5);
-    const quat = new Quaternion().setFromUnitVectors(
-      UP,
-      dir.clone().normalize(),
-    );
-    return { length, mid, quat };
+    const unit = dir.clone().normalize();
+    const quat = new Quaternion().setFromUnitVectors(UP, unit);
+    // Rectangular sections need a roll-pinned frame (height up, width level).
+    const rectQuat = rectQuaternion(dir);
+    return { length, mid, quat, rectQuat };
   }, [start, end]);
 }
 
@@ -178,7 +203,7 @@ function RectDuctSegment(p: ElementVisualProps) {
   return (
     <mesh
       position={span.mid}
-      quaternion={span.quat}
+      quaternion={span.rectQuat}
       {...interactionHandlers(p)}
       userData={p.element.userData}
     >
@@ -302,7 +327,12 @@ function DamperFitting(p: ElementVisualProps) {
   const radius = params.radius ?? 100;
   const width = params.width ?? radius * 2;
   const height = params.height ?? radius * 2;
-  const quat = useMemo(() => new Quaternion().setFromUnitVectors(UP, dir), [dir]);
+  // Rectangular dampers need the roll-pinned frame (height up) so W×H reads
+  // consistently; round bodies are symmetric so the simple heading is fine.
+  const quat = useMemo(
+    () => (isRound ? new Quaternion().setFromUnitVectors(UP, dir) : rectQuaternion(dir)),
+    [dir, isRound],
+  );
   const rollRad = ((params.rollDeg ?? 0) * Math.PI) / 180;
   return (
     <group position={pos} quaternion={quat} {...interactionHandlers(p)} userData={p.element.userData}>

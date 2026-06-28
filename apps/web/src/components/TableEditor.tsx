@@ -58,6 +58,7 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
   const scene = useViewerStore((s) => s.scene);
   const select = useViewerStore((s) => s.select);
   const selected = useViewerStore((s) => s.selectedId);
+  const regenerate = useViewerStore((s) => s.regenerate);
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<TableView>("input");
@@ -132,8 +133,14 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
     onChange([...rows, blank]);
   };
 
-  const removeRow = (idx: number) =>
+  const removeRow = (idx: number) => {
+    const removedSeq = String(rows[idx]?.seq ?? "").trim();
     onChange(rows.filter((_, i) => i !== idx));
+    // Drop the selection if it pointed at the removed item, then rebuild the
+    // scene so the 3D view loses the part immediately (not just on next 생성).
+    if (removedSeq && selected === `A${removedSeq}`) select(null);
+    void regenerate();
+  };
 
   const exportCsv = () => {
     if (view === "summary") {
@@ -218,6 +225,11 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
                 const diags = seqKey ? diagBySeq.get(seqKey) ?? [] : [];
                 const level = worstLevel(diags);
                 const isSelected = !!seqKey && selected === `A${seqKey}`;
+                // Corner fittings have no straight length — it's computed from
+                // size + angle, so the length cell is locked to avoid confusion.
+                const lengthAuto = ["elbow", "tee"].includes(
+                  String(row.part_type ?? "").toLowerCase(),
+                );
                 const tip = diags
                   .map((d) => `${LEVEL_ICON[d.level]} ${d.message}${d.suggestion ? `\n   ↳ ${d.suggestion}` : ""}`)
                   .join("\n");
@@ -234,21 +246,33 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
                     onClick={() => seqKey && select(`A${seqKey}`)}
                     className={rowClass}
                   >
-                    {columns.map((c, cIdx) => (
-                      <td key={c} className="border-b border-panelLight/50 p-0">
-                        <div className="flex items-center">
-                          {cIdx === 0 && level && (
-                            <span className="pl-1 text-[11px] select-none">{LEVEL_ICON[level]}</span>
-                          )}
-                          <input
-                            value={String(row[c] ?? "")}
-                            placeholder={PLACEHOLDERS[c] ?? ""}
-                            onChange={(e) => update(rIdx, c, e.target.value)}
-                            className="w-24 bg-transparent px-1.5 py-1 outline-none focus:bg-panelLight placeholder:text-gray-700"
-                          />
-                        </div>
-                      </td>
-                    ))}
+                    {columns.map((c, cIdx) => {
+                      const isAutoLen = c === "length" && lengthAuto;
+                      const computedLen = isAutoLen
+                        ? bom.find((b) => b.elementId === `A${seqKey}`)?.lengthMm
+                        : undefined;
+                      const autoLenText =
+                        computedLen != null ? `${Math.round(computedLen)} (자동)` : "";
+                      return (
+                        <td key={c} className="border-b border-panelLight/50 p-0">
+                          <div className="flex items-center">
+                            {cIdx === 0 && level && (
+                              <span className="pl-1 text-[11px] select-none">{LEVEL_ICON[level]}</span>
+                            )}
+                            <input
+                              value={isAutoLen ? autoLenText : String(row[c] ?? "")}
+                              placeholder={isAutoLen ? "자동" : PLACEHOLDERS[c] ?? ""}
+                              disabled={isAutoLen}
+                              title={isAutoLen ? "엘보/티 길이는 치수·각도로 자동 계산됩니다" : undefined}
+                              onChange={(e) => update(rIdx, c, e.target.value)}
+                              className={`w-24 bg-transparent px-1.5 py-1 outline-none focus:bg-panelLight placeholder:text-gray-700 ${
+                                isAutoLen ? "cursor-not-allowed italic text-gray-600" : ""
+                              }`}
+                            />
+                          </div>
+                        </td>
+                      );
+                    })}
                     <td className="border-b border-panelLight/50 text-center">
                       <button
                         onClick={(e) => {

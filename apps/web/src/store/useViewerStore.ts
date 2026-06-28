@@ -41,6 +41,7 @@ interface ViewerState {
   hover: (id: string | null) => void;
   hoverJoint: (id: string | null) => void;
   addFromJoint: (kind: AddFromJointKind, opts?: AddFromJointOptions) => void;
+  addTap: (parentSeq: string | number, angle: number) => void;
   rotateFitting: (id: string, deltaDeg: number) => void;
   setSearch: (term: string) => void;
   setViewMode: (vm: ViewMode) => void;
@@ -127,6 +128,30 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     };
 
     set({ rows: [...rows, row], selectedJointId: null });
+    void get()
+      .regenerate()
+      .then(() => set({ selectedId: `A${newSeq}` }));
+  },
+
+  addTap: (parentSeq, angle) => {
+    const { rows, mode } = get();
+    const newSeq = nextSeq(rows);
+    // A branch that taps the side of the parent straight (HVAC duct branching):
+    // straight piece, connected via the "tap" port at mid-length by default.
+    const row: TableRow = {
+      seq: newSeq,
+      system_type: mode,
+      part_type: "straight",
+      spec: "",
+      size_a: "",
+      size_b: "",
+      length: 1000,
+      angle,
+      connect_to_seq: parentSeq,
+      connect_port: "tap@0.5",
+      note: angle === 45 ? "45° 래터럴(탭)" : "옆면 분기(탭)",
+    };
+    set({ rows: [...rows, row] });
     void get()
       .regenerate()
       .then(() => set({ selectedId: `A${newSeq}` }));
