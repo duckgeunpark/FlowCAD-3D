@@ -13,6 +13,10 @@ import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
 export type ViewMode = "true_scale" | "iso";
 export type LabelMode = "auto" | "all" | "joints" | "none";
 export type AddFromJointKind = "straight" | "elbow" | "tee" | "valve" | "damper" | "reducer";
+/** Extra parameters for a part added from a 3D joint (e.g. a chosen elbow angle). */
+export interface AddFromJointOptions {
+  angle?: number;
+}
 
 interface ViewerState {
   mode: DesignMode;
@@ -36,7 +40,7 @@ interface ViewerState {
   selectJoint: (id: string | null) => void;
   hover: (id: string | null) => void;
   hoverJoint: (id: string | null) => void;
-  addFromJoint: (kind: AddFromJointKind) => void;
+  addFromJoint: (kind: AddFromJointKind, opts?: AddFromJointOptions) => void;
   rotateFitting: (id: string, deltaDeg: number) => void;
   setSearch: (term: string) => void;
   setViewMode: (vm: ViewMode) => void;
@@ -97,7 +101,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   hover: (hoveredId) => set({ hoveredId }),
   hoverJoint: (hoveredJointId) => set({ hoveredJointId }),
 
-  addFromJoint: (kind) => {
+  addFromJoint: (kind, opts) => {
     const { scene, selectedJointId, rows, mode } = get();
     if (!scene || !selectedJointId) return;
     const source = findJoint(scene, selectedJointId);
@@ -107,6 +111,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     if (parentSeq == null) return;
     const newSeq = nextSeq(rows);
 
+    const elbowAngle = opts?.angle ?? 90;
     const row: TableRow = {
       seq: newSeq,
       system_type: mode,
@@ -115,7 +120,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       size_a: "",
       size_b: "",
       length: kind === "straight" ? 1000 : kind === "reducer" ? 300 : "",
-      angle: kind === "elbow" ? 90 : "",
+      angle: kind === "elbow" ? elbowAngle : "",
       connect_to_seq: parentSeq,
       connect_port: source.joint.role,
       note: "3D에서 추가",

@@ -27,6 +27,7 @@ export function DetailPanel() {
   const rectangular = element.params.width != null || element.params.height != null;
   const rotateStep = rectangular ? 90 : 15;
   const isError = element.kind === "error_marker";
+  const dimensions = describeDimensions(element.params);
 
   return (
     <div className={`absolute top-3 right-3 w-72 bg-panel/95 backdrop-blur border ${isError ? 'border-red-500/80 shadow-red-900/50' : 'border-panelLight'} rounded-lg shadow-xl`}>
@@ -40,6 +41,14 @@ export function DetailPanel() {
         {!isError && <Row label="아이템번호" value={element.itemNo || "-"} />}
         <Row label="종류" value={element.kind} />
         <Row label="ID" value={element.id} />
+        {!isError && dimensions.length > 0 && (
+          <div className="pt-1.5 mt-1.5 border-t border-panelLight space-y-1.5">
+            <div className="text-gray-400">치수</div>
+            {dimensions.map((d) => (
+              <Row key={d.label} label={d.label} value={d.value} />
+            ))}
+          </div>
+        )}
         {Object.entries(element.userData).map(([k, v]) => (
           <Row key={k} label={LABELS[k] ?? k} value={v || "-"} isHighlight={k === "error"} />
         ))}
@@ -88,6 +97,38 @@ export function DetailPanel() {
       </div>
     </div>
   );
+}
+
+const mm = (n: number) => `${Math.round(n)} mm`;
+
+/** Human-readable cross-section dimensions from an element's geometry params. */
+function describeDimensions(p: import("@flowcad/shared").ElementParams): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  // Transition: show both ends.
+  if (p.fromShape != null || p.toShape != null) {
+    rows.push({ label: "변환 (입구)", value: sectionText(p.fromShape, p.fromWidth, p.fromHeight, p.fromRadius) });
+    rows.push({ label: "변환 (출구)", value: sectionText(p.toShape, p.toWidth, p.toHeight, p.toRadius) });
+    return rows;
+  }
+  if (p.width != null || p.height != null) {
+    rows.push({ label: "단면 (W×H)", value: `${Math.round(p.width ?? 0)} × ${Math.round(p.height ?? 0)} mm` });
+  } else if (p.radius != null) {
+    rows.push({ label: "직경 (Ø)", value: mm(p.radius * 2) });
+  }
+  if (p.bendRadius != null) rows.push({ label: "곡률반경 (R)", value: mm(p.bendRadius) });
+  return rows;
+}
+
+function sectionText(
+  shape: "rectangular" | "round" | undefined,
+  width: number | undefined,
+  height: number | undefined,
+  radius: number | undefined,
+): string {
+  if (shape === "round" || (radius != null && width == null)) {
+    return radius != null ? `Ø ${mm(radius * 2)}` : "원형";
+  }
+  return `${Math.round(width ?? 0)} × ${Math.round(height ?? 0)} mm`;
 }
 
 function Row({ label, value, isHighlight }: { label: string; value: string; isHighlight?: boolean }) {

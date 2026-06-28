@@ -154,11 +154,9 @@ class GeometryFactory:
             params["outDirection"] = out_dir
 
         if kind is ComponentKind.ELBOW:
-            if section.shape is DuctShape.ROUND:
-                params["bendRadius"] = section.bend_radius or radius * 3.0
-            else:
+            if section.shape is not DuctShape.ROUND:
                 params.update(_section_dims(section))
-                params["bendRadius"] = max(section.width, section.height) * 0.9
+            params["bendRadius"] = elbow_bend_radius(section)
         elif kind is ComponentKind.TEE:
             branch = _branch_direction(primary, in_dir, out_dir)
             if abs(roll_deg) > 1e-9:
@@ -309,6 +307,24 @@ def _trimmed_segment_points(run: Run, a: Node, b: Node) -> tuple[Vec3, Vec3]:
     )
 
 
+def _rect_elbow_bend_radius(section: CrossSection) -> float:
+    """Rectangular duct elbow centerline bend radius.
+
+    BNPP HVAC STANDARD (dwg 0-294-M172-902 / -903): radius rectangular elbow with
+    throat (inside) radius ``R = W/2`` unless noted otherwise, where W is the duct
+    width in the plane of the bend. The inside radius is W/2, so the centerline
+    radius is ``throat + W/2 = W`` and the heel (outside) radius is ``3W/2`` — a
+    clean radius elbow with a non-degenerate inner wall. (Reading R=W/2 as the
+    *centerline* radius would collapse the inner wall to zero radius.)
+
+    This single value is the shared contract for (a) the elbow's leg length /
+    tangent in the frontend GeometryFactory, (b) the straight trim clearance, and
+    (c) the elbow joint-port offsets — keep them reading from here so a future
+    per-spec radius only changes one place.
+    """
+    return max(section.width, 1.0)
+
+
 def _fitting_clearance(run: Run, node: Node) -> float:
     """Distance from fitting center to straight-run connection face."""
     if node.fitting is None:
@@ -321,8 +337,14 @@ def _fitting_clearance(run: Run, node: Node) -> float:
     if kind is ComponentKind.ELBOW:
         if section.shape is DuctShape.ROUND:
             return section.bend_radius or radius * 3.0
-        return max(section.width, section.height) * 0.9
+        return _rect_elbow_bend_radius(section)
     if kind is ComponentKind.TEE:
+        # A child on the branch port must trim back by the branch arm length, not
+        # the main-run half-length, so its joint meets the tee's branch joint
+        # (which sits at center + branch * branchLength) instead of floating
+        # inside the tee toward its center.
+        if node.fitting_port == "branch":
+            return max(radius * 4.0, 300.0)
         return max(radius * 5.0, 400.0) / 2.0
     if kind is ComponentKind.VALVE:
         body_length = max(radius * 4.0, 250.0)

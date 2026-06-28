@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Toolbar } from "@/components/Toolbar";
 import { TableEditor } from "@/components/TableEditor";
-import { BomTable } from "@/components/BomTable";
 import { ExportBar } from "@/components/ExportBar";
 import { DetailPanel } from "@/components/DetailPanel";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
@@ -48,7 +47,6 @@ function readSavedProject(): ProjectFile | null {
 
 export default function Home() {
   const { mode, setMode, rows, setRows, regenerate, error } = useViewerStore();
-  const [activeTab, setActiveTab] = useState<"editor" | "bom">("editor");
   const fileInput = useRef<HTMLInputElement>(null);
 
   // When a project load changes the mode, the mode-reset effect below must NOT
@@ -153,39 +151,8 @@ export default function Home() {
 
       <div className="flex flex-1 min-h-0">
         <aside className="w-[460px] flex flex-col border-r border-panelLight bg-panel/60 shadow-lg">
-          <div className="flex border-b border-panelLight bg-panel/90 px-2 pt-2 gap-1">
-            <button
-              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-t-lg transition-all border-t border-x ${
-                activeTab === "editor"
-                  ? "bg-panel border-panelLight text-emerald-300 shadow-sm"
-                  : "bg-transparent border-transparent text-gray-400 hover:text-gray-200 hover:bg-panelLight/20"
-              }`}
-              onClick={() => setActiveTab("editor")}
-            >
-              📋 설계 입력 테이블
-            </button>
-            <button
-              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-t-lg transition-all border-t border-x ${
-                activeTab === "bom"
-                  ? "bg-panel border-panelLight text-emerald-300 shadow-sm"
-                  : "bg-transparent border-transparent text-gray-400 hover:text-gray-200 hover:bg-panelLight/20"
-              }`}
-              onClick={() => setActiveTab("bom")}
-            >
-              📦 자재 명세서 (BOM)
-            </button>
-          </div>
-
           <div className="flex-1 min-h-0 flex flex-col">
-            {activeTab === "editor" ? (
-              <div className="flex-1 min-h-0 flex flex-col">
-                <TableEditor mode={mode} rows={rows} onChange={setRows} />
-              </div>
-            ) : (
-              <div className="flex-1 min-h-0 flex flex-col">
-                <BomTable />
-              </div>
-            )}
+            <TableEditor mode={mode} rows={rows} onChange={setRows} />
           </div>
 
           <DiagnosticsPanel />

@@ -86,6 +86,70 @@ def test_elbow_45_turns_45_degrees(service: GenerationService) -> None:
     assert seg2.params["direction"] == pytest.approx([inv, inv, 0.0], abs=1e-6)
 
 
+def test_rect_duct_elbow_bend_radius_is_half_width(service: GenerationService) -> None:
+    """BNPP HVAC standard: rectangular duct elbow centerline radius R = W/2 (UNO)."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "size_a": 600, "size_b": 300, "length": 2000, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "elbow", "angle": 90,
+         "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "straight",
+         "length": 1500, "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    elbow = next(e for e in scene.elements if e.kind is ComponentKind.ELBOW)
+    # Throat radius R = W/2 (=300) -> centerline bend radius = W = 600,
+    # independent of the (smaller) height.
+    assert elbow.params["bendRadius"] == pytest.approx(600.0)
+    assert elbow.params["width"] == pytest.approx(600.0)
+    assert elbow.params["height"] == pytest.approx(300.0)
+
+
+def test_rect_duct_elbow_supports_45_degree_turn(service: GenerationService) -> None:
+    """A 45° duct elbow turns the downstream run 45° and keeps the R=W/2 radius."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "size_a": 400, "size_b": 250, "length": 1000, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "elbow", "angle": 45,
+         "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "straight",
+         "length": 1000, "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    elbow = next(e for e in scene.elements if e.kind is ComponentKind.ELBOW)
+    assert elbow.params["bendRadius"] == pytest.approx(400.0)  # centerline = W (throat W/2)
+    seg = next(e for e in scene.elements if e.id == "A3")
+    inv = 2 ** 0.5 / 2
+    assert seg.params["direction"] == pytest.approx([inv, inv, 0.0], abs=1e-6)
+
+
+def test_tee_branch_child_joint_meets_branch_joint(service: GenerationService) -> None:
+    """A straight hung off a tee's branch must start exactly at the tee's branch
+    joint (not float inside toward the tee center)."""
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100,
+         "length": 2000, "connect_port": "start"},
+        {"seq": 2, "system_type": "pipe", "part_type": "tee", "size_a": 100,
+         "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "pipe", "part_type": "straight", "length": 1500,
+         "connect_to_seq": 2, "connect_port": "out"},
+        {"seq": 4, "system_type": "pipe", "part_type": "straight", "length": 1000,
+         "connect_to_seq": 2, "connect_port": "branch"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    tee = next(e for e in scene.elements if e.kind is ComponentKind.TEE)
+    branch_joint = next(j for j in tee.joints if j.role == "branch")
+    branch_seg = next(e for e in scene.elements if e.id == "A4")
+    seg_start = next(j for j in branch_seg.joints if j.role == "start")
+    assert list(seg_start.position) == pytest.approx(list(branch_joint.position))
+
+    # The main-run child still meets the tee's out joint (unchanged behaviour).
+    out_joint = next(j for j in tee.joints if j.role == "out")
+    main_seg = next(e for e in scene.elements if e.id == "A3")
+    main_start = next(j for j in main_seg.joints if j.role == "start")
+    assert list(main_start.position) == pytest.approx(list(out_joint.position))
+
+
 def test_direction_override_takes_precedence(service: GenerationService) -> None:
     rows = [
         {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100,

@@ -134,6 +134,8 @@ class ResolvedPart:
     ports: dict[str, tuple[Vec3, Vec3]] = field(default_factory=dict)
     start_neighbor: ComponentKind | None = None
     end_neighbor: ComponentKind | None = None
+    # Port on ``start_neighbor`` that this part hangs off (e.g. "branch"/"out").
+    start_neighbor_port: str | None = None
 
 
 def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
@@ -585,6 +587,7 @@ def _assign_neighbors(
             if parent.kind in _CORNER_FITTINGS:
                 if child.start_neighbor is None:
                     child.start_neighbor = parent.kind
+                    child.start_neighbor_port = port
             if child.kind in _CORNER_FITTINGS and port in ("end", "out"):
                 if parent.end_neighbor is None and parent.role == "segment":
                     parent.end_neighbor = child.kind
@@ -634,7 +637,8 @@ class AssemblyCompiler:
     def _segment(self, rp: ResolvedPart, mode: DesignMode, eid: str):
         run = Run(mode=mode, section=rp.in_section, nodes=[])
         a = Node(position=rp.start_pos, metadata=rp.metadata,
-                 fitting=rp.start_neighbor, section=rp.in_section)
+                 fitting=rp.start_neighbor, section=rp.in_section,
+                 fitting_port=rp.start_neighbor_port)
         b = Node(position=rp.end_pos, metadata=rp.metadata,
                  fitting=rp.end_neighbor, section=rp.in_section)
         return self._factory.build_segment(run, a, b, eid)

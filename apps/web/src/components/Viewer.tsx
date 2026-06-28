@@ -22,7 +22,11 @@ export function Viewer() {
   return (
     <Canvas shadows dpr={[1, 2]} className="bg-[#0b0e13]">
       {viewMode === "true_scale" ? (
-        <PerspectiveCamera makeDefault position={[4000, 3500, 5000]} fov={45} far={500000} />
+        // near=0.1 with far=500000 gives a ~5,000,000:1 depth ratio, which
+        // destroys depth-buffer precision and makes adjacent faces z-fight /
+        // flicker while orbiting. Scene units are mm, so a 50mm near plane is
+        // safe and restores precision.
+        <PerspectiveCamera makeDefault position={[4000, 3500, 5000]} fov={45} near={50} far={500000} />
       ) : (
         <OrthographicCamera makeDefault position={[6000, 6000, 6000]} zoom={0.08} far={500000} />
       )}
@@ -183,11 +187,15 @@ function shouldShowJointLabel(
   return jointId === selectedJointId || jointId === hoveredJointId;
 }
 
+// Quick-pick elbow angles offered in the joint menu. Arbitrary angles (0–90°)
+// can still be typed into the table's 각도° column; these are the common presets.
+const ELBOW_ANGLES = [45, 90] as const;
+
 function JointAddMenu({ joint, showDamper }: { joint: JointPort; showDamper: boolean }) {
   const { addFromJoint, mode } = useViewerStore();
+  // Non-elbow parts (the elbow gets its own angle-aware row below).
   const buttons: { key: AddFromJointKind; label: string }[] = [
     { key: "straight", label: "직관" },
-    { key: "elbow", label: "엘보" },
     { key: "tee", label: "티" },
     { key: "valve", label: "밸브" },
     { key: "reducer", label: mode === "pipe" ? "레듀샤" : "레듀샤/트랜지션" },
@@ -209,6 +217,22 @@ function JointAddMenu({ joint, showDamper }: { joint: JointPort; showDamper: boo
               }}
             >
               {button.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 flex items-center gap-1">
+          <span className="text-[11px] text-gray-300 shrink-0">엘보</span>
+          {ELBOW_ANGLES.map((angle) => (
+            <button
+              key={angle}
+              className="flex-1 px-2 py-1 rounded bg-blue-700 text-white text-xs hover:bg-blue-500"
+              title={`${angle}° 엘보 추가`}
+              onClick={(event) => {
+                event.stopPropagation();
+                addFromJoint("elbow", { angle });
+              }}
+            >
+              {angle}°
             </button>
           ))}
         </div>

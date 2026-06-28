@@ -50,6 +50,10 @@ class Node:
     metadata: Metadata
     fitting: ComponentKind | None = None  # placed AT this node (elbow/tee/valve...)
     section: CrossSection | None = None
+    # Which port of the neighboring ``fitting`` this endpoint connects to
+    # (e.g. "branch" vs "out"). Lets the trim use the correct arm length so the
+    # straight's joint lands exactly on the fitting's port joint, not its center.
+    fitting_port: str | None = None
 
 
 @dataclass(slots=True)

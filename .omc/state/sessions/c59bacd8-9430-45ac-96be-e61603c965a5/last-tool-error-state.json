@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"C:\\\\Users\\\\duke\\\\Desktop\\\\Project\\\\FlowCAD-3D\\\\dwg\\\\BNPP HVAC STANDARD.pdf\",\"pages\":\"1-8\"}",
+  "error": "pdftoppm failed: Command 'pdftoppm' not found or is in an unsafe location (current directory)",
+  "timestamp": "2026-06-28T05:24:26.602Z",
+  "retry_count": 1
+}

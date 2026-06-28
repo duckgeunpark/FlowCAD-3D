@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782533407880,
-  "projectRoot": "C:\\Users\\USER\\Project\\CD\\FlowCAD 3D",
+  "lastScanned": 1782621010208,
+  "projectRoot": "C:\\Users\\duke\\Desktop\\Project\\FlowCAD-3D",
   "techStack": {
     "languages": [
       {
@@ -18,8 +18,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd \"/c/Users/duke/Desktop/Project/FlowCAD-3D\" && npm run build:web 2>&1 | tail -12; echo \"EXIT=${PIPESTATUS[0]}\"",
-    "testCommand": "cd \"C:\\Users\\USER\\Project\\CD\\FlowCAD 3D/apps/api\" && python -m pytest tests/test_assembly.py -q 2>&1 | tail -20",
+    "buildCommand": null,
+    "testCommand": null,
     "lintCommand": null,
     "devCommand": null,
     "scripts": {
@@ -51,40 +51,40 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1782533407849,
+      "lastAccessed": 1782621010172,
       "keyFiles": []
     },
     "Documents": {
       "path": "Documents",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1782533407850,
+      "lastAccessed": 1782621010173,
       "keyFiles": [
-        "iso example.pdf",
-        "master_implementation_plan.md"
+        "plan_v1.md",
+        "Plan_v2.md"
+      ]
+    },
+    "dwg": {
+      "path": "dwg",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782621010183,
+      "keyFiles": [
+        "BNPP HVAC STANDARD.pdf"
       ]
     },
     "packages": {
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1782533407857,
+      "lastAccessed": 1782621010183,
       "keyFiles": []
-    },
-    "samples": {
-      "path": "samples",
-      "purpose": null,
-      "fileCount": 1,
-      "lastAccessed": 1782533407858,
-      "keyFiles": [
-        "pipe_sample.csv"
-      ]
     },
     "apps\\api": {
       "path": "apps\\api",
       "purpose": "API routes",
       "fileCount": 2,
-      "lastAccessed": 1782533407858,
+      "lastAccessed": 1782621010184,
       "keyFiles": [
         "pyproject.toml",
         "requirements.txt"
@@ -94,176 +94,182 @@
   "hotPaths": [
     {
       "path": "apps\\api\\app\\engine\\assembly.py",
-      "accessCount": 16,
-      "lastAccessed": 1782570308361,
+      "accessCount": 11,
+      "lastAccessed": 1782628358302,
       "type": "file"
     },
     {
       "path": "apps\\api\\app\\engine\\geometry_factory.py",
-      "accessCount": 7,
-      "lastAccessed": 1782567226276,
+      "accessCount": 11,
+      "lastAccessed": 1782628649984,
       "type": "file"
     },
     {
-      "path": "apps\\api\\tests\\test_assembly.py",
+      "path": "apps\\web\\src\\three\\GeometryFactory.tsx",
       "accessCount": 6,
-      "lastAccessed": 1782570342412,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\api\\routes.py",
-      "accessCount": 4,
-      "lastAccessed": 1782545755791,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\domain\\components.py",
-      "accessCount": 3,
-      "lastAccessed": 1782548274986,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\services\\generation_service.py",
-      "accessCount": 3,
-      "lastAccessed": 1782548283070,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\lib\\sampleData.ts",
-      "accessCount": 2,
-      "lastAccessed": 1782545378370,
-      "type": "file"
-    },
-    {
-      "path": "packages\\shared\\src\\scene.ts",
-      "accessCount": 2,
-      "lastAccessed": 1782545378689,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web",
-      "accessCount": 2,
-      "lastAccessed": 1782545457538,
-      "type": "directory"
-    },
-    {
-      "path": "Documents\\Plan_v2.md",
-      "accessCount": 2,
-      "lastAccessed": 1782548264617,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\services\\table_template.py",
-      "accessCount": 2,
-      "lastAccessed": 1782548284118,
-      "type": "file"
-    },
-    {
-      "path": "README.md",
-      "accessCount": 1,
-      "lastAccessed": 1782534274006,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\components\\TableEditor.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1782534281476,
-      "type": "file"
-    },
-    {
-      "path": "apps\\web\\src\\components\\Viewer.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1782534298489,
+      "lastAccessed": 1782622504185,
       "type": "file"
     },
     {
       "path": "apps\\web\\src\\store\\useViewerStore.ts",
-      "accessCount": 1,
-      "lastAccessed": 1782534304835,
+      "accessCount": 5,
+      "lastAccessed": 1782624707007,
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\engine\\compiler.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534305168,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\domain\\scene.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534431457,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\parsing\\pipe_parser.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534432097,
-      "type": "file"
-    },
-    {
-      "path": "apps\\api\\app\\parsing\\base.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534438491,
+      "path": "apps\\api\\tests\\test_assembly.py",
+      "accessCount": 5,
+      "lastAccessed": 1782626182262,
       "type": "file"
     },
     {
       "path": "apps\\web\\src\\app\\page.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1782534438951,
+      "accessCount": 5,
+      "lastAccessed": 1782626389488,
       "type": "file"
     },
     {
-      "path": "apps\\web\\src\\lib\\api.ts",
-      "accessCount": 1,
-      "lastAccessed": 1782534439890,
+      "path": "start.bat",
+      "accessCount": 4,
+      "lastAccessed": 1782621606842,
       "type": "file"
     },
     {
       "path": "apps\\web\\src\\components\\DetailPanel.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1782534488509,
+      "accessCount": 4,
+      "lastAccessed": 1782626241917,
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\parsing\\duct_parser.py",
-      "accessCount": 1,
-      "lastAccessed": 1782534489477,
+      "path": "apps\\web\\src\\components\\BomTable.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1782626284091,
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\api\\schemas.py",
+      "path": "apps\\web\\src\\components\\TableEditor.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1782626669305,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\components\\Viewer.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1782624733543,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 2,
+      "lastAccessed": 1782624242564,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\api\\app\\domain\\components.py",
+      "accessCount": 2,
+      "lastAccessed": 1782626087959,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
       "accessCount": 1,
-      "lastAccessed": 1782534489924,
+      "lastAccessed": 1782621037898,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\package.json",
+      "accessCount": 1,
+      "lastAccessed": 1782621042045,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\requirements.txt",
+      "accessCount": 1,
+      "lastAccessed": 1782621043094,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\main.py",
+      "accessCount": 1,
+      "lastAccessed": 1782621043485,
+      "type": "file"
+    },
+    {
+      "path": "apps\\api\\app\\config.py",
+      "accessCount": 1,
+      "lastAccessed": 1782621054137,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\three\\coords.ts",
+      "accessCount": 1,
+      "lastAccessed": 1782622441484,
       "type": "file"
     },
     {
       "path": "apps\\api\\app\\domain\\enums.py",
       "accessCount": 1,
-      "lastAccessed": 1782534490893,
+      "lastAccessed": 1782624198404,
       "type": "file"
     },
     {
-      "path": "apps\\api\\app\\domain\\geometry.py",
+      "path": "apps\\api\\app\\parsing\\duct_parser.py",
       "accessCount": 1,
-      "lastAccessed": 1782534490993,
+      "lastAccessed": 1782624199275,
       "type": "file"
     },
     {
       "path": "apps\\api\\app\\engine\\catalog.py",
       "accessCount": 1,
-      "lastAccessed": 1782548274358,
+      "lastAccessed": 1782624199743,
       "type": "file"
     },
     {
-      "path": "apps\\web\\src",
+      "path": "apps\\api\\app\\services\\table_template.py",
       "accessCount": 1,
-      "lastAccessed": 1782549471654,
-      "type": "directory"
+      "lastAccessed": 1782624200404,
+      "type": "file"
     },
     {
-      "path": "apps\\api\\app\\services\\export_service.py",
+      "path": "apps\\api\\app\\specs\\repository.py",
       "accessCount": 1,
-      "lastAccessed": 1782549657032,
+      "lastAccessed": 1782624212197,
+      "type": "file"
+    },
+    {
+      "path": ".omx\\specs\\deep-interview-normal-fitting-geometry-db.md",
+      "accessCount": 1,
+      "lastAccessed": 1782624254672,
+      "type": "file"
+    },
+    {
+      "path": ".omx\\plans\\prd-normal-fitting-geometry-db.md",
+      "accessCount": 1,
+      "lastAccessed": 1782624255630,
+      "type": "file"
+    },
+    {
+      "path": ".omx\\ultragoal\\brief.md",
+      "accessCount": 1,
+      "lastAccessed": 1782624255912,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\lib\\sampleData.ts",
+      "accessCount": 1,
+      "lastAccessed": 1782625708308,
+      "type": "file"
+    },
+    {
+      "path": "packages\\shared\\src\\scene.ts",
+      "accessCount": 1,
+      "lastAccessed": 1782625973109,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\lib\\bom.ts",
+      "accessCount": 1,
+      "lastAccessed": 1782626664296,
       "type": "file"
     }
   ],
