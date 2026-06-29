@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd \\\"C:/Users/USER/AppData/Local/Temp/claude/C--Users-USER-Project-CD-FlowCAD-3D/61d608e9-3f82-4d00-825c-a0b34b2a176d/scratchpad\\\" && ls -l flowcad_pipe.* && echo \\\"--- IFC head ---\\\" && h...",
-  "error": "Exit code 1\n-rw-r--r-- 1 USER 197121 41572 Jun 26 16:52 flowcad_pipe.dxf\n-rw-r--r-- 1 USER 197121 11989 Jun 26 16:52 flowcad_pipe.pdf\n--- IFC head ---\nhead: cannot open 'flowcad_pipe.ifc' for reading: No such file or directory",
-  "timestamp": "2026-06-26T12:52:34.865Z",
-  "retry_count": 2
-}

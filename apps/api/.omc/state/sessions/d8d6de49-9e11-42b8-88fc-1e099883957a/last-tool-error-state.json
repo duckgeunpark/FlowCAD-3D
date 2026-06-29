@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd \\\"C:/Users/USER/Project/CD/FlowCAD 3D\\\" && git stash list && git stash && cd apps/api && ./.venv/Scripts/python.exe -m pytest tests/test_generation.py::test_tee_has_three_joint_ports_wi...",
-  "error": "Exit code 1\nwarning: in the working copy of '.omc/project-memory.json', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of '.omc/state/agent-replay-d8d6de49-9e11-42b8-88fc-1e099883957a.jsonl', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of '.omc/state/sessions/d8d6de49-9e11-42b8-88fc-1e099883957a/autopilot-state.json', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/api/...",
-  "timestamp": "2026-06-27T07:17:40.515Z",
-  "retry_count": 1
-}

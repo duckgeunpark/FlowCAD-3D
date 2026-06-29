@@ -1,1 +1,0 @@
-﻿{"goals":[{"id":"G001","title":"Parametric fitting geometry","status":"complete","evidence":"backend pytest 26 passed; npm run build:web passed; code-reviewer APPROVE; architect CLEAR; UltraQA harness PASS"}]}
