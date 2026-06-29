@@ -43,7 +43,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-.claude
+
 /dwg
 
 # OMC / OMX agent state (any location, including nested workspaces)
