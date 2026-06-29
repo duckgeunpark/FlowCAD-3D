@@ -112,6 +112,10 @@ _PART_TYPE_DESC: dict[str, str] = {
     "reducer_ecc": "Reducer (eccentric)",
     "transition": "Transition",
     "transform": "Transition",
+    "rect_straight_offset": "Rect. Straight Offset",
+    "rect_radius_offset": "Rect. Radius Offset",
+    "round_mitered_offset": "Round Mitered Offset",
+    "round_radius_offset": "Round Radius Offset",
 }
 
 

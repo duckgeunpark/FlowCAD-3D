@@ -481,23 +481,98 @@ def test_catalog_fitting_ids_render_via_dispatch(service: GenerationService) -> 
     assert kinds["A4"] is ComponentKind.DUCT_SEGMENT
     # The rect elbow inherited its 500x300 section from the dimension keys.
     assert scene.elements[1].params["width"] == pytest.approx(500.0)
+    assert scene.elements[0].params["end"] == pytest.approx([1200.0, 0.0, 0.0])
+    assert scene.elements[2].params["end"] == pytest.approx([1700.0, 1000.0, 0.0])
 
 
-def test_pending_catalog_fitting_warns_and_renders_nothing(
+def test_catalog_round_elbow_carries_gored_geometry_params(
     service: GenerationService,
 ) -> None:
-    """A recognised-but-unbuilt catalog shape surfaces a FITTING_PENDING warning
-    and produces no geometry (rather than a wrong shape)."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "round_straight",
+         "D": 400, "L": 1000, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "round_elbow",
+         "D": 400, "angle": 60, "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "round_straight",
+         "D": 400, "L": 800, "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    elbow = next(e for e in scene.elements if e.id == "A2")
+    assert elbow.kind is ComponentKind.ELBOW
+    assert elbow.params["elbowStyle"] == "gored"
+    assert elbow.params["gores"] == pytest.approx(3.0)
+    assert elbow.params["bendRadius"] == pytest.approx(600.0)
+    assert "FITTING_PENDING" not in _codes(scene)
+
+
+def test_catalog_rect_offset_renders_with_parallel_shifted_outlet(
+    service: GenerationService,
+) -> None:
     rows = [
         {"seq": 1, "system_type": "duct", "part_type": "rect_straight",
          "W": 500, "H": 300, "L": 1000, "connect_port": "start"},
-        {"seq": 2, "system_type": "duct", "part_type": "rect_45_lateral",
-         "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45,
+        {"seq": 2, "system_type": "duct", "part_type": "rect_straight_offset",
+         "W": 500, "H": 300, "offset": 250, "X": 75,
          "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "rect_straight",
+         "W": 500, "H": 300, "L": 500, "connect_to_seq": 2, "connect_port": "end"},
     ]
     scene = service.generate(DesignMode.DUCT, rows)
-    assert "A2" not in {e.id for e in scene.elements}
-    assert "FITTING_PENDING" in _codes(scene)
+    offset = next(e for e in scene.elements if e.id == "A2")
+    downstream = next(e for e in scene.elements if e.id == "A3")
+    assert offset.kind is ComponentKind.TRANSITION
+    assert offset.params["offsetStyle"] == "rect_straight_offset"
+    assert offset.params["offset"] == pytest.approx(250.0)
+    assert offset.params["direction"] == pytest.approx([1.0, 0.0, 0.0])
+    assert offset.params["start"] == pytest.approx([1000.0, 0.0, 0.0])
+    assert offset.params["end"] == pytest.approx([2000.0, 250.0, 0.0])
+    assert downstream.params["start"] == pytest.approx([2000.0, 250.0, 0.0])
+    assert downstream.params["end"] == pytest.approx([2500.0, 250.0, 0.0])
+    assert "FITTING_PENDING" not in _codes(scene)
+
+
+def test_all_catalog_fitting_ids_render_an_element(service: GenerationService) -> None:
+    """Every standard-catalog id must create a visible 3D element.
+
+    Some rare fittings reuse the closest current primitive (tee/cap/access-door
+    proxy), but none should disappear behind FITTING_PENDING.
+    """
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "rect_straight", "W": 500, "H": 300, "L": 900},
+        {"seq": 2, "system_type": "duct", "part_type": "round_straight", "D": 350, "L": 900},
+        {"seq": 3, "system_type": "duct", "part_type": "rect_radius_elbow", "W": 500, "H": 300, "R": 500, "angle": 45},
+        {"seq": 4, "system_type": "duct", "part_type": "rect_mitered_elbow_90", "W": 500, "H": 300, "angle": 90},
+        {"seq": 5, "system_type": "duct", "part_type": "round_elbow", "D": 350, "R": 500, "angle": 45, "gores": 5},
+        {"seq": 6, "system_type": "duct", "part_type": "rect_straight_offset", "W": 500, "H": 300, "offset": 400, "X": 75, "L": 900},
+        {"seq": 7, "system_type": "duct", "part_type": "rect_radius_offset", "W": 500, "H": 300, "R": 500, "offset": 400, "L": 900},
+        {"seq": 8, "system_type": "duct", "part_type": "round_mitered_offset", "D": 350, "offset": 400, "L": 900},
+        {"seq": 9, "system_type": "duct", "part_type": "round_radius_offset", "D": 350, "R": 500, "offset": 400, "L": 900},
+        {"seq": 10, "system_type": "duct", "part_type": "transition_round_round", "D": 350, "toD": 300, "L": 900},
+        {"seq": 11, "system_type": "duct", "part_type": "transition_rect_round", "W": 500, "H": 300, "toD": 300, "L": 900},
+        {"seq": 12, "system_type": "duct", "part_type": "transition_rect_rect", "W": 500, "H": 300, "toW": 400, "toH": 250, "L": 900},
+        {"seq": 13, "system_type": "duct", "part_type": "rect_straight_tee", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "X": 75},
+        {"seq": 14, "system_type": "duct", "part_type": "rect_radius_tee", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "R": 500},
+        {"seq": 15, "system_type": "duct", "part_type": "conical_tee", "W": 500, "H": 300, "branchW": 250, "branchH": 200},
+        {"seq": 16, "system_type": "duct", "part_type": "combination_tee", "W": 500, "H": 300, "branchW": 250},
+        {"seq": 17, "system_type": "duct", "part_type": "round_straight_tee", "D": 350, "branchD": 220},
+        {"seq": 18, "system_type": "duct", "part_type": "straight_tapped_tee", "W": 500, "H": 300, "branchD": 220, "NL": 200},
+        {"seq": 19, "system_type": "duct", "part_type": "rect_45_tapped_tee", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45},
+        {"seq": 20, "system_type": "duct", "part_type": "rect_double_45_tapped_tee", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45},
+        {"seq": 21, "system_type": "duct", "part_type": "rect_two_way_wye", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45},
+        {"seq": 22, "system_type": "duct", "part_type": "symmetrical_wye_rect", "W": 500, "H": 300, "angle": 45},
+        {"seq": 23, "system_type": "duct", "part_type": "rect_45_lateral", "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45},
+        {"seq": 24, "system_type": "duct", "part_type": "conical_45_lateral", "D": 350, "branchD": 220, "angle": 45, "R": 500},
+        {"seq": 25, "system_type": "duct", "part_type": "rect_end_cap", "W": 500, "H": 300},
+        {"seq": 26, "system_type": "duct", "part_type": "round_end_cap", "D": 350},
+        {"seq": 27, "system_type": "duct", "part_type": "access_door", "doorW": 450, "doorH": 300},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    element_ids = {e.id for e in scene.elements}
+    assert "FITTING_PENDING" not in _codes(scene)
+    assert ComponentKind.ERROR_MARKER not in _kinds(scene)
+    assert len(scene.elements) == len(rows)
+    for row in rows:
+        assert f"A{row['seq']}" in element_ids
 
 
 def test_direction_vector_form_is_accepted(service: GenerationService) -> None:
@@ -591,6 +666,15 @@ def test_missing_target_emits_error_diagnostic(service: GenerationService) -> No
     diag = _diag_by_code(scene, "MISSING_TARGET")
     assert diag.level == "error"
     assert diag.seq == "2"
+
+
+def test_unknown_part_type_is_rejected(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "not_a_standard_fitting",
+         "size_a": 500, "size_b": 300, "length": 1000},
+    ]
+    with pytest.raises(AssemblyError, match="unknown part_type"):
+        service.generate(DesignMode.DUCT, rows)
 
 
 def test_inherited_spec_emits_info_diagnostic(service: GenerationService) -> None:

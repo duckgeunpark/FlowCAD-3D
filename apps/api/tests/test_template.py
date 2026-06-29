@@ -12,6 +12,7 @@ from app.services.table_template import (
     build_template_xlsx,
     columns_for,
     load_table,
+    normalize_table_rows,
 )
 from app.specs.repository import InMemorySpecRepository
 
@@ -36,7 +37,9 @@ def test_template_roundtrip_duct() -> None:
     data = build_template_xlsx(DesignMode.DUCT)
     rows = load_table("t.xlsx", data)
     assert rows[0]["system_type"] == "duct"
-    assert rows[0]["part_type"] == "straight"
+    assert rows[0]["part_type"] == "rect_straight"
+    assert float(rows[0]["W"]) == 500
+    assert float(rows[0]["H"]) == 300
     assert float(rows[0]["size_a"]) == 500
     assert float(rows[0]["size_b"]) == 300
 
@@ -45,7 +48,46 @@ def test_load_table_csv_path() -> None:
     csv = b"run_id,seq,x,y,z,nominal\nR1,1,0,0,0,100A\nR1,2,100,0,0,100A\n"
     rows = load_table("data.csv", csv)
     assert len(rows) == 2
-    assert rows[1]["x"] == "100"
+    assert rows[1]["X"] == "100"
+
+
+def test_normalize_korean_catalog_headers() -> None:
+    rows = normalize_table_rows([
+        {
+            "순번": 1,
+            "계통": "duct",
+            "표준피팅": "rect_radius_elbow",
+            "가로": 500,
+            "세로": 300,
+            "각도": 90,
+            "엘보방향": "up",
+            "연결포트": "end",
+        }
+    ])
+    assert rows == [{
+        "seq": 1,
+        "system_type": "duct",
+        "part_type": "rect_radius_elbow",
+        "W": 500,
+        "H": 300,
+        "angle": 90,
+        "bend_to": "up",
+        "connect_port": "end",
+        "size_a": 500,
+        "size_b": 300,
+    }]
+
+
+def test_load_table_csv_uses_shared_normalization() -> None:
+    csv = "순번,계통,표준피팅,가로,세로,길이,연결포트\n1,duct,rect_straight,500,300,1220,start\n"
+    rows = load_table("data.csv", csv.encode("utf-8-sig"))
+    assert rows[0]["part_type"] == "rect_straight"
+    assert rows[0]["W"] == "500"
+    assert rows[0]["H"] == "300"
+    assert rows[0]["L"] == "1220"
+    assert rows[0]["size_a"] == "500"
+    assert rows[0]["size_b"] == "300"
+    assert rows[0]["length"] == "1220"
 
 
 def test_uploaded_template_generates_scene() -> None:

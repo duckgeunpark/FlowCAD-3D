@@ -7,7 +7,7 @@ import { useViewerStore } from "@/store/useViewerStore";
 import type { TableRow } from "@/lib/sampleData";
 
 const FORMATS: { fmt: ExportFormat; label: string; hint: string }[] = [
-  { fmt: "dxf", label: "DXF", hint: "AutoCAD (3D)" },
+  { fmt: "dxf", label: "DXF", hint: "AutoCAD 3D" },
   { fmt: "pdf", label: "PDF", hint: "ISO 도면" },
   { fmt: "ifc", label: "IFC", hint: "Revit / Navisworks" },
   { fmt: "step", label: "STEP", hint: "SolidWorks / CATIA" },
@@ -52,15 +52,15 @@ export function ExportBar({ mode, rows }: ExportBarProps) {
             key={fmt}
             onClick={() => handleExport(fmt)}
             disabled={disabled}
-            title={unavailable ? `${hint} — 서버에 백엔드 미설치` : hint}
+            title={unavailable ? `${hint} 서버 백엔드 미설치` : hint}
             className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
               disabled
                 ? "bg-panelLight/50 text-gray-600 cursor-not-allowed"
                 : "bg-panelLight text-gray-200 hover:bg-accent hover:text-white"
             }`}
           >
-            {busy === fmt ? "…" : label}
-            {unavailable && <span className="ml-1 text-[10px]">⚠</span>}
+            {busy === fmt ? "준비 중" : label}
+            {unavailable && <span className="ml-1 text-[10px]">미지원</span>}
           </button>
         );
       })}

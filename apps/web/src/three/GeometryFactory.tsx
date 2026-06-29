@@ -26,6 +26,20 @@ export interface ElementVisualProps {
 const UP = new Vector3(0, 1, 0);
 const X_AXIS = new Vector3(1, 0, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
+const OFFSET_PART_TYPES = new Set([
+  "rect_straight_offset",
+  "rect_radius_offset",
+  "round_mitered_offset",
+  "round_radius_offset",
+]);
+
+function partType(element: SceneElement): string {
+  return String(element.userData.partType ?? "").toLowerCase();
+}
+
+function isOffsetElement(element: SceneElement): boolean {
+  return OFFSET_PART_TYPES.has(partType(element));
+}
 
 /**
  * Orientation for a rectangular section whose local axes are X=width, Y=length,
@@ -83,7 +97,9 @@ export function ElementMesh(props: ElementVisualProps) {
         <TubeSegment {...props} />
       );
     case "elbow":
-      return element.params.width != null || element.params.height != null ? (
+      return partType(element) === "round_elbow" ? (
+        <GoredRoundElbow {...props} />
+      ) : element.params.width != null || element.params.height != null ? (
         <DuctElbow {...props} />
       ) : (
         <PipeElbow {...props} />
@@ -91,7 +107,7 @@ export function ElementMesh(props: ElementVisualProps) {
     case "tee":
       return <TeeFitting {...props} />;
     case "transition":
-      return <TransitionFitting {...props} />;
+      return isOffsetElement(element) ? <OffsetFitting {...props} /> : <TransitionFitting {...props} />;
     case "valve":
       return <ValveFitting {...props} />;
     case "damper":
@@ -231,6 +247,16 @@ function PipeElbow(p: ElementVisualProps) {
     <mesh position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
       <tubeGeometry args={[curve, 32, radius, 18, false]} />
       {StandardMaterial(p, 0.45, 0.42)}
+    </mesh>
+  );
+}
+
+function GoredRoundElbow(p: ElementVisualProps) {
+  const pos = useMemo(() => toThree(p.element.params.position!), [p.element.params.position]);
+  const geometry = useMemo(() => buildGoredRoundElbowGeometry(p.element), [p.element]);
+  return (
+    <mesh position={pos} geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
+      {StandardMaterial(p, 0.45, 0.42, DoubleSide)}
     </mesh>
   );
 }
@@ -380,6 +406,15 @@ function TransitionFitting(p: ElementVisualProps) {
   );
 }
 
+function OffsetFitting(p: ElementVisualProps) {
+  const geometry = useMemo(() => buildOffsetGeometry(p.element), [p.element]);
+  return (
+    <mesh geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
+      {StandardMaterial(p, 0.25, 0.56, DoubleSide)}
+    </mesh>
+  );
+}
+
 function LocalCylinder({ p, start, end, radius }: { p: ElementVisualProps; start: Vector3; end: Vector3; radius: number }) {
   const { length, mid, quat } = useMemo(() => {
     const dir = new Vector3().subVectors(end, start);
@@ -441,6 +476,85 @@ function buildSweptRect(
   return geometry;
 }
 
+function buildSweptRound(
+  rings: { center: Vector3; tangent: Vector3 }[],
+  radius: number,
+  radialSegments = 24,
+): BufferGeometry {
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  for (const r of rings) {
+    const frame = sectionFrameForDirection(r.tangent);
+    for (let i = 0; i < radialSegments; i++) {
+      const angle = (i / radialSegments) * Math.PI * 2;
+      const point = r.center.clone()
+        .addScaledVector(frame.right, Math.cos(angle) * radius)
+        .addScaledVector(frame.up, Math.sin(angle) * radius);
+      vertices.push(point.x, point.y, point.z);
+    }
+  }
+
+  for (let i = 0; i < rings.length - 1; i++) {
+    const a = i * radialSegments;
+    const b = (i + 1) * radialSegments;
+    for (let k = 0; k < radialSegments; k++) {
+      const kk = (k + 1) % radialSegments;
+      indices.push(a + k, b + k, a + kk);
+      indices.push(a + kk, b + k, b + kk);
+    }
+  }
+
+  const startCenter = vertices.length / 3;
+  vertices.push(rings[0].center.x, rings[0].center.y, rings[0].center.z);
+  for (let k = 0; k < radialSegments; k++) {
+    indices.push(startCenter, (k + 1) % radialSegments, k);
+  }
+
+  const endCenter = vertices.length / 3;
+  const last = (rings.length - 1) * radialSegments;
+  const lastCenter = rings[rings.length - 1].center;
+  vertices.push(lastCenter.x, lastCenter.y, lastCenter.z);
+  for (let k = 0; k < radialSegments; k++) {
+    indices.push(endCenter, last + k, last + ((k + 1) % radialSegments));
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function buildGoredRoundElbowGeometry(element: SceneElement): BufferGeometry {
+  const p = element.params;
+  const inDir = toThreeDirection(p.inDirection ?? [-1, 0, 0]);
+  const outDir = toThreeDirection(p.outDirection ?? [0, 1, 0]);
+  const radius = p.radius ?? 25;
+  const bendRadius = p.bendRadius ?? radius * 3;
+  const gores = clampInt(p.gores ?? 5, 2, 12);
+  const start = inDir.clone().multiplyScalar(-bendRadius);
+  const corner = new Vector3(0, 0, 0);
+  const end = outDir.clone().multiplyScalar(bendRadius);
+  const centers: Vector3[] = [];
+
+  for (let i = 0; i <= gores; i++) {
+    centers.push(quadraticPoint(start, corner, end, i / gores));
+  }
+
+  const rings = centers.map((center, i) => {
+    let tangent: Vector3;
+    if (i === 0) {
+      tangent = inDir.clone();
+    } else if (i === centers.length - 1) {
+      tangent = outDir.clone();
+    } else {
+      tangent = new Vector3().subVectors(centers[i + 1], centers[i - 1]);
+    }
+    return { center, tangent: tangent.normalize() };
+  });
+  return buildSweptRound(rings, radius, 24);
+}
+
 /**
  * A true radius (swept) rectangular duct elbow — the rectangular section is
  * swept along a circular arc tangent to both legs, matching the radius elbow
@@ -499,6 +613,33 @@ function buildDuctElbowGeometry(element: SceneElement): BufferGeometry {
       outOfPlane: axis,
     });
   }
+  return buildSweptRect(rings, halfW, halfH);
+}
+
+function buildOffsetGeometry(element: SceneElement): BufferGeometry {
+  const p = element.params;
+  const start = toThree(p.start!);
+  const end = toThree(p.end!);
+  const main = toThreeDirection(p.direction ?? [1, 0, 0]);
+  const delta = new Vector3().subVectors(end, start);
+  const mainDistance = Math.max(delta.dot(main), 0);
+  const offsetVector = delta.clone().addScaledVector(main, -mainDistance);
+  const style = p.offsetStyle ?? partType(element);
+  const centers = style.includes("radius")
+    ? smoothOffsetCenters(start, main, offsetVector, mainDistance)
+    : miteredOffsetCenters(start, end, main, mainDistance, p.straightStub ?? 75);
+
+  if (p.fromShape === "round") {
+    const radius = p.fromRadius ?? p.radius ?? p.toRadius ?? 100;
+    return buildSweptRound(offsetRings(centers, main), radius, 24);
+  }
+
+  const halfW = (p.fromWidth ?? p.width ?? p.toWidth ?? 200) / 2;
+  const halfH = (p.fromHeight ?? p.height ?? p.toHeight ?? 200) / 2;
+  const rings = offsetRings(centers, main).map((r) => {
+    const frame = sectionFrameForDirection(r.tangent);
+    return { center: r.center, inPlane: frame.right, outOfPlane: frame.up };
+  });
   return buildSweptRect(rings, halfW, halfH);
 }
 
@@ -577,8 +718,81 @@ function sectionRing(shape: "rectangular" | "round", width: number, height: numb
   return points;
 }
 
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function quadraticPoint(a: Vector3, b: Vector3, c: Vector3, t: number): Vector3 {
+  const s = 1 - t;
+  return a.clone().multiplyScalar(s * s)
+    .add(b.clone().multiplyScalar(2 * s * t))
+    .add(c.clone().multiplyScalar(t * t));
+}
+
+function smoothOffsetCenters(
+  start: Vector3,
+  main: Vector3,
+  offsetVector: Vector3,
+  mainDistance: number,
+): Vector3[] {
+  const centers: Vector3[] = [];
+  const segments = 16;
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const eased = t * t * (3 - 2 * t);
+    centers.push(start.clone()
+      .addScaledVector(main, mainDistance * t)
+      .addScaledVector(offsetVector, eased));
+  }
+  return centers;
+}
+
+function miteredOffsetCenters(
+  start: Vector3,
+  end: Vector3,
+  main: Vector3,
+  mainDistance: number,
+  straightStub: number,
+): Vector3[] {
+  const stub = Math.min(Math.max(straightStub, 0), mainDistance / 3);
+  if (stub <= 1e-6) return [start, end];
+  const firstMiter = start.clone().addScaledVector(main, stub);
+  const lastMiter = end.clone().addScaledVector(main, -stub);
+  if (firstMiter.distanceTo(lastMiter) <= 1e-6) return [start, end];
+  return [start, firstMiter, lastMiter, end];
+}
+
+function offsetRings(
+  centers: Vector3[],
+  main: Vector3,
+): { center: Vector3; tangent: Vector3 }[] {
+  return centers.map((center, i) => {
+    let tangent: Vector3;
+    if (i === 0 || i === centers.length - 1) {
+      tangent = main.clone();
+    } else {
+      tangent = new Vector3().subVectors(centers[i + 1], centers[i - 1]);
+    }
+    if (tangent.length() <= 1e-6) tangent = main.clone();
+    return { center, tangent: tangent.normalize() };
+  });
+}
+
 function toThreeDirection(value: [number, number, number]): Vector3 {
   return toThree(value).normalize();
+}
+
+function sectionFrameForDirection(direction: Vector3): { right: Vector3; up: Vector3 } {
+  const length = direction.length() > 1e-6 ? direction.clone().normalize() : X_AXIS.clone();
+  let up: Vector3;
+  if (Math.abs(length.dot(UP)) > 0.99) {
+    up = Z_AXIS.clone();
+  } else {
+    up = UP.clone().addScaledVector(length, -UP.dot(length)).normalize();
+  }
+  const right = new Vector3().crossVectors(length, up).normalize();
+  up = new Vector3().crossVectors(right, length).normalize();
+  return { right, up };
 }
 
 function perpendicularTo(axis: Vector3): Vector3 {

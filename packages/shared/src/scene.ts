@@ -33,8 +33,15 @@ export interface ElementParams {
   branchDirection?: [number, number, number];
   radius?: number;
   bendRadius?: number;
+  elbowStyle?: string;
+  gores?: number;
   width?: number;
   height?: number;
+  offset?: number;
+  offsetDirection?: [number, number, number];
+  offsetLength?: number;
+  offsetStyle?: string;
+  straightStub?: number;
   runLength?: number;
   branchLength?: number;
   bodyLength?: number;

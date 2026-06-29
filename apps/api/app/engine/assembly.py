@@ -39,6 +39,15 @@ _TRANSITION_TYPES = {"reducer", "transition", "transform", "reducer_conc", "redu
 _VALVE_TYPES = {"valve", "gate_valve", "butterfly_valve"}
 _DAMPER_TYPES = {"damper", "vd", "fd"}
 _CAP_TYPES = {"cap", "blind"}
+_KNOWN_PART_TYPES = (
+    _STRAIGHT_TYPES
+    | _ELBOW_TYPES
+    | _TEE_TYPES
+    | _TRANSITION_TYPES
+    | _VALVE_TYPES
+    | _DAMPER_TYPES
+    | _CAP_TYPES
+)
 
 # Fittings whose centerline sits AT the connection point (so abutting straights
 # need trimming). Inline fittings (valve/damper) expose ports on their faces.
@@ -154,7 +163,7 @@ def _tap_entry(parent: ResolvedPart, connect_port: str, row: dict) -> tuple[Vec3
 @dataclass(slots=True)
 class ResolvedPart:
     seq: str
-    role: str                         # 'segment' | 'fitting' | 'transition'
+    role: str                         # 'segment' | 'fitting' | 'transition' | 'offset'
     kind: ComponentKind | None        # fitting kind, or None for straight
     in_section: CrossSection
     out_section: CrossSection
@@ -172,6 +181,8 @@ class ResolvedPart:
     # Branch taps on this straight's side: (surface point, branch direction). The
     # compiler adds a matching joint at each so the branch reads as connected.
     taps: list[tuple[Vec3, list[float]]] = field(default_factory=list)
+    # Extra SceneElement params that are specific to catalog geometry variants.
+    geometry_params: dict[str, float | str | list[float]] = field(default_factory=dict)
 
 
 # ---- BNPP HVAC standard catalog (drawing 0-294-M172-902) ------------------- #
@@ -185,6 +196,10 @@ _CATALOG_BEHAVIOR: dict[str, tuple[str, ComponentKind | None]] = {
     "rect_radius_elbow": ("fitting", ComponentKind.ELBOW),
     "rect_mitered_elbow_90": ("fitting", ComponentKind.ELBOW),
     "round_elbow": ("fitting", ComponentKind.ELBOW),
+    "rect_straight_offset": ("offset", ComponentKind.TRANSITION),
+    "rect_radius_offset": ("offset", ComponentKind.TRANSITION),
+    "round_mitered_offset": ("offset", ComponentKind.TRANSITION),
+    "round_radius_offset": ("offset", ComponentKind.TRANSITION),
     "transition_round_round": ("transition", ComponentKind.TRANSITION),
     "transition_rect_round": ("transition", ComponentKind.TRANSITION),
     "transition_rect_rect": ("transition", ComponentKind.TRANSITION),
@@ -196,21 +211,27 @@ _CATALOG_BEHAVIOR: dict[str, tuple[str, ComponentKind | None]] = {
     "straight_tapped_tee": ("fitting", ComponentKind.TEE),
     "rect_45_tapped_tee": ("fitting", ComponentKind.TEE),
     "rect_double_45_tapped_tee": ("fitting", ComponentKind.TEE),
+    "rect_two_way_wye": ("fitting", ComponentKind.TEE),
+    "symmetrical_wye_rect": ("fitting", ComponentKind.TEE),
+    "rect_45_lateral": ("fitting", ComponentKind.TEE),
+    "conical_45_lateral": ("fitting", ComponentKind.TEE),
+    "rect_end_cap": ("cap", None),
+    "round_end_cap": ("cap", None),
+    "access_door": ("segment", None),
 }
-_CATALOG_PENDING = {
-    "rect_straight_offset", "rect_radius_offset", "round_mitered_offset",
-    "round_radius_offset", "rect_two_way_wye", "symmetrical_wye_rect",
-    "rect_45_lateral", "conical_45_lateral", "rect_end_cap", "round_end_cap",
-    "access_door",
-}
+_CATALOG_PENDING: set[str] = set()
 
 
 def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
     pt = part_type.strip().lower()
+    if not pt:
+        return "segment", None
     if pt in _CATALOG_BEHAVIOR:
         return _CATALOG_BEHAVIOR[pt]
     if pt in _CATALOG_PENDING:
         return "pending", None
+    if pt in _STRAIGHT_TYPES:
+        return "segment", None
     if pt in _ELBOW_TYPES:
         return "fitting", ComponentKind.ELBOW
     if pt in _TEE_TYPES:
@@ -223,8 +244,7 @@ def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
         return "transition", ComponentKind.TRANSITION
     if pt in _CAP_TYPES:
         return "cap", None
-    # default: a straight segment (also covers 'pipe'/'duct'/'straight')
-    return "segment", None
+    return "unknown", None
 
 
 def _normalize_catalog_row(row: dict) -> dict:
@@ -235,7 +255,20 @@ def _normalize_catalog_row(row: dict) -> dict:
     if pt not in _CATALOG_BEHAVIOR:
         return row
     r = dict(row)
+    if pt == "access_door":
+        door_w, door_h = _num(row.get("doorW")), _num(row.get("doorH"))
+        if door_w is not None:
+            r["size_a"] = door_w
+        if door_h is not None:
+            r["size_b"] = door_h
+        if _num(r.get("length")) is None:
+            r["length"] = 25
+        return r
+
     w, h, d = _num(row.get("W")), _num(row.get("H")), _num(row.get("D"))
+    l = _num(row.get("L"))
+    if l is not None and _num(r.get("length")) is None:
+        r["length"] = l
     if pt.startswith("transition"):
         # Inlet section is inherited from the parent; the row carries the OUTLET.
         to_d, to_w, to_h = _num(row.get("toD")), _num(row.get("toW")), _num(row.get("toH"))
@@ -300,6 +333,16 @@ def _num(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return result if math.isfinite(result) else None
+
+
+def _gore_count(angle_deg: float) -> int:
+    """BNPP round elbow gore count: <=36°:2, 37-72°:3, 73-90°:5."""
+    angle = abs(angle_deg)
+    if angle <= 36.0:
+        return 2
+    if angle <= 72.0:
+        return 3
+    return 5
 
 
 def _parse_direction(value: object) -> Vec3 | None:
@@ -388,7 +431,14 @@ class AssemblyResolver:
         if explicit_round:
             d = diameter if diameter is not None else size_a
             if d is not None:
-                return CrossSection(shape=DuctShape.ROUND, outer_diameter=d), f"Round Ø{d:g}"
+                return (
+                    CrossSection(
+                        shape=DuctShape.ROUND,
+                        outer_diameter=d,
+                        bend_radius=_num(row.get("R")) or 0.0,
+                    ),
+                    f"Round Ø{d:g}",
+                )
         if explicit_rect:
             return (
                 CrossSection(shape=DuctShape.RECTANGULAR, width=width, height=height),
@@ -470,6 +520,12 @@ class AssemblyResolver:
                 system_type = mode.value
             part_type = str(row.get("part_type", row.get("item_type", "straight")))
             role, kind = _classify(part_type)
+            if role == "unknown":
+                allowed = ", ".join(sorted(_KNOWN_PART_TYPES | set(_CATALOG_BEHAVIOR) | _CATALOG_PENDING))
+                raise AssemblyError(
+                    f"unknown part_type '{part_type}'. Use a supported legacy type or catalog id: {allowed}",
+                    seq=seq,
+                )
             # Catalog rows (standard 0-294-M172-902) carry W/H/D/to* dimensions;
             # translate them to the size columns the resolver expects.
             row = _normalize_catalog_row(row)
@@ -595,9 +651,18 @@ class AssemblyResolver:
                 "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
                 "out": (out_face, out_dir), "end": (out_face, out_dir),
             }
+            geometry_params: dict[str, float | str | list[float]] = {}
+            if str(row.get("part_type", "")).strip().lower() == "round_elbow":
+                turn = angle if angle is not None else 90.0
+                gores_raw = _num(row.get("gores"))
+                gores = int(round(gores_raw)) if gores_raw is not None else _gore_count(turn)
+                geometry_params = {
+                    "elbowStyle": "gored",
+                    "gores": float(max(2, gores)),
+                }
             return ResolvedPart(seq, "fitting", kind, section, section,
                                 entry_pos, out_face, corner, h_in, out_dir,
-                                metadata, ports)
+                                metadata, ports, geometry_params=geometry_params)
 
         if role == "fitting" and kind is ComponentKind.TEE:
             roll = _num(row.get("rotation"))
@@ -606,7 +671,13 @@ class AssemblyResolver:
             # so the branch port and any child placed on it point the same way.
             if section.shape is DuctShape.RECTANGULAR:
                 roll = round(roll / 90.0) * 90.0
-            branch = _norm(_rotate_axis(_perp_in_plan(h_in), h_in, roll))
+            side = _norm(_rotate_axis(_perp_in_plan(h_in), h_in, roll))
+            branch_angle = _num(row.get("angle"))
+            if branch_angle is None:
+                branch = side
+            else:
+                rad = math.radians(branch_angle)
+                branch = _norm(side.scaled(math.sin(rad)) + h_in.scaled(math.cos(rad)))
             # Piece model: the in-face is at entry_pos; the tee body occupies its
             # own run, so the center is half a run past the face, the out-face a
             # full half-run past the center, and the branch-face one branch arm out.
@@ -637,6 +708,47 @@ class AssemblyResolver:
                                 entry_pos, out_face, corner, h_in, h_in,
                                 metadata, ports)
 
+        if role == "offset":
+            part_type = str(row.get("part_type", "")).strip().lower()
+            offset_amount = _num(row.get("offset")) or 0.0
+            offset_dir = _parse_direction(
+                row.get("offset_direction") or row.get("offset_dir") or row.get("offset_to")
+            )
+            if offset_dir is None:
+                offset_dir = _perp_in_plan(h_in)
+            roll = _num(row.get("rotation"))
+            if roll:
+                offset_dir = _rotate_axis(offset_dir, h_in, roll)
+            offset_dir = _norm(offset_dir)
+
+            straight_stub = _num(row.get("X")) or 75.0
+            bend_radius = _num(row.get("R")) or elbow_bend_radius(section)
+            span = _num(row.get("L")) or _num(row.get("length"))
+            if span is None or span <= 0:
+                span = max(
+                    abs(offset_amount) * 2.0 + straight_stub * 2.0,
+                    bend_radius * 2.0 if "radius" in part_type else 0.0,
+                    _nominal_radius(section) * 4.0,
+                    300.0,
+                )
+            out_face = entry_pos + h_in.scaled(span) + offset_dir.scaled(offset_amount)
+            ports = {
+                "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
+                "out": (out_face, h_in), "end": (out_face, h_in),
+            }
+            geometry_params = {
+                "offset": offset_amount,
+                "offsetLength": span,
+                "offsetDirection": list(offset_dir.as_tuple()),
+                "offsetStyle": part_type,
+                "bendRadius": bend_radius,
+                "straightStub": straight_stub,
+            }
+            return ResolvedPart(seq, "offset", ComponentKind.TRANSITION,
+                                section, section, entry_pos, out_face,
+                                entry_pos.midpoint(out_face), h_in, h_in,
+                                metadata, ports, geometry_params=geometry_params)
+
         if role == "transition":
             # in-section inherited from parent, out-section from this row
             in_section = prev_section or section
@@ -651,9 +763,14 @@ class AssemblyResolver:
                                 h_in, h_in, metadata, ports)
 
         if role == "cap":
-            ports = {"in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1))}
+            thickness = max(_nominal_radius(section) * 0.08, 25.0)
+            end = entry_pos + h_in.scaled(thickness)
+            ports = {
+                "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
+                "out": (end, h_in), "end": (end, h_in),
+            }
             return ResolvedPart(seq, "cap", None, section, section,
-                                entry_pos, entry_pos, entry_pos, h_in, h_in,
+                                entry_pos, end, entry_pos.midpoint(end), h_in, h_in,
                                 metadata, ports)
 
         # default: straight segment
@@ -770,9 +887,12 @@ class AssemblyCompiler:
                 builder.add(self._segment(rp, mode, eid))
             elif rp.role == "transition":
                 builder.add(self._transition(rp, mode, eid))
+            elif rp.role == "offset":
+                builder.add(self._offset(rp, mode, eid))
             elif rp.role == "fitting":
                 builder.add(self._fitting(rp, mode, eid))
-            # 'cap' renders no geometry in the MVP (it only closes a port)
+            elif rp.role == "cap":
+                builder.add(self._segment(rp, mode, eid))
         # Only blocking (error-level) diagnostics with a 3D anchor get a marker;
         # info/warning rows surface in the table/diagnostics panel instead.
         marker_idx = 0
@@ -822,7 +942,15 @@ class AssemblyCompiler:
         run = Run(mode=mode, section=rp.in_section, nodes=[])
         a = Node(position=rp.start_pos, metadata=rp.metadata, section=rp.in_section)
         b = Node(position=rp.end_pos, metadata=rp.metadata, section=rp.out_section)
-        return self._factory.build_transition(run, a, b, eid)
+        elem = self._factory.build_transition(run, a, b, eid)
+        elem.params.update(rp.geometry_params)
+        return elem
+
+    def _offset(self, rp: ResolvedPart, mode: DesignMode, eid: str):
+        run = Run(mode=mode, section=rp.in_section, nodes=[])
+        a = Node(position=rp.start_pos, metadata=rp.metadata, section=rp.in_section)
+        b = Node(position=rp.end_pos, metadata=rp.metadata, section=rp.out_section)
+        return self._factory.build_offset(run, a, b, eid, rp.in_dir, rp.geometry_params)
 
     def _fitting(self, rp: ResolvedPart, mode: DesignMode, eid: str):
         run = Run(mode=mode, section=rp.in_section, nodes=[])
@@ -832,7 +960,9 @@ class AssemblyCompiler:
                     metadata=rp.metadata, section=rp.in_section)
         nxt = Node(position=rp.corner_pos + rp.out_dir.scaled(1000.0),
                    metadata=rp.metadata, section=rp.out_section)
-        return self._factory.build_fitting(run, corner, eid, prev, nxt)
+        elem = self._factory.build_fitting(run, corner, eid, prev, nxt)
+        elem.params.update(rp.geometry_params)
+        return elem
 
 
 # --------------------------------------------------------------------------- #

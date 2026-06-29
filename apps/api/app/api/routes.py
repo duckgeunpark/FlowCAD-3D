@@ -8,7 +8,6 @@ from ..domain.enums import DesignMode, ExportFormat
 from ..engine.assembly import AssemblyError
 from ..export.base import BackendUnavailableError, ExporterError
 from ..parsing.base import ParseError
-from ..services.csv_loader import load_csv
 from ..services.export_service import ExportService
 from ..services.generation_service import GenerationService
 from ..services.table_template import build_template_xlsx, load_table
@@ -40,7 +39,7 @@ async def generate_from_csv(
     service: GenerationService = Depends(get_generation_service),
 ) -> SceneDocumentDTO:
     """Generate a Scene Document from an uploaded CSV/Excel export."""
-    rows = load_csv(await file.read())
+    rows = load_table(file.filename or "upload.csv", await file.read())
     return _run(service, mode, rows)
 
 

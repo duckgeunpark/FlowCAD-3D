@@ -7,7 +7,7 @@ export interface SummaryRow {
   totalLength: number;
 }
 
-/** Aggregate BOM rows into a quantity takeoff grouped by (부재, Spec). */
+/** Aggregate BOM rows into a quantity takeoff grouped by part and spec. */
 export function summarize(bom: BomRow[]): SummaryRow[] {
   const groups = new Map<string, SummaryRow>();
   for (const row of bom) {
@@ -36,8 +36,7 @@ export function toCsv(rows: (string | number)[][]): string {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  // Prepend a UTF-8 BOM so Excel reads Korean headers correctly.
-  return "﻿" + rows.map((r) => r.map(escape).join(",")).join("\r\n");
+  return "\uFEFF" + rows.map((r) => r.map(escape).join(",")).join("\r\n");
 }
 
 export function download(filename: string, content: string): void {

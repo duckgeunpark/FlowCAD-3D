@@ -125,6 +125,41 @@ class GeometryFactory:
             ],
         )
 
+    def build_offset(
+        self,
+        run: Run,
+        a: Node,
+        b: Node,
+        eid: str,
+        direction: Vec3,
+        extra_params: ParamMap | None = None,
+    ) -> SceneElement:
+        """A same-section offset fitting with parallel inlet/outlet faces."""
+        section = self._section_for(run, a)
+        direction_list = _unit_list(direction)
+        params: ParamMap = {
+            "start": list(a.position.as_tuple()),
+            "end": list(b.position.as_tuple()),
+            "direction": direction_list,
+            **_section_params("from", section),
+            **_section_params("to", section),
+            **_section_dims(section),
+        }
+        if extra_params:
+            params.update(extra_params)
+        return SceneElement(
+            id=eid,
+            kind=ComponentKind.TRANSITION,
+            params=params,
+            color=_PALETTE[ComponentKind.TRANSITION],
+            user_data=self._user_data(a, extra={"length_mm": str(
+                round((b.position - a.position).length(), 1))}, run=run),
+            joints=[
+                _joint_port(eid, a, "in", a.position, _unit_list(direction.scaled(-1))),
+                _joint_port(eid, b, "out", b.position, direction_list),
+            ],
+        )
+
     def build_fitting(
         self,
         run: Run,

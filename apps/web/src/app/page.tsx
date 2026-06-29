@@ -12,13 +12,11 @@ import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
 import { useViewerStore } from "@/store/useViewerStore";
 import type { DesignMode } from "@flowcad/shared";
 
-// The 3D canvas must only render client-side (WebGL); skip SSR.
 const Viewer = dynamic(
   () => import("@/components/Viewer").then((m) => m.Viewer),
   { ssr: false },
 );
 
-// localStorage key for the working project (auto-saved so a refresh keeps edits).
 const STORAGE_KEY = "flowcad.project.v1";
 
 interface ProjectFile {
@@ -49,13 +47,9 @@ function readSavedProject(): ProjectFile | null {
 export default function Home() {
   const { mode, setMode, rows, setRows, regenerate, error } = useViewerStore();
   const fileInput = useRef<HTMLInputElement>(null);
-
-  // When a project load changes the mode, the mode-reset effect below must NOT
-  // clobber the loaded rows with a fresh sample.
   const skipReset = useRef(false);
   const prevMode = useRef<DesignMode>(mode);
 
-  // Restore the saved project once on mount (rows live in the store now).
   useEffect(() => {
     const saved = readSavedProject();
     if (!saved) return;
@@ -67,7 +61,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset rows to the matching sample whenever the user changes the design mode.
   useEffect(() => {
     if (prevMode.current === mode) return;
     prevMode.current = mode;
@@ -79,12 +72,11 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Auto-save the working project so a refresh does not lose edits.
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, rows }));
     } catch {
-      /* storage may be full/blocked — non-fatal */
+      /* storage may be full or blocked */
     }
   }, [mode, rows]);
 
@@ -110,7 +102,7 @@ export default function Home() {
         (parsed.mode !== "pipe" && parsed.mode !== "duct") ||
         !Array.isArray(parsed.rows)
       ) {
-        throw new Error("형식이 올바르지 않습니다");
+        throw new Error("프로젝트 파일 형식이 올바르지 않습니다.");
       }
       if (parsed.mode !== mode) {
         skipReset.current = true;
@@ -146,7 +138,7 @@ export default function Home() {
 
       {error && (
         <div className="px-4 py-1.5 bg-red-900/40 text-red-200 text-sm border-b border-red-800">
-          ⚠ {error}
+          오류: {error}
         </div>
       )}
 
@@ -156,9 +148,7 @@ export default function Home() {
           <div className="flex-1 min-h-0 flex flex-col">
             <TableEditor mode={mode} rows={rows} onChange={setRows} />
           </div>
-
           <DiagnosticsPanel />
-
           <div className="border-t border-panelLight bg-panel/40">
             <ExportBar mode={mode} rows={rows} />
           </div>

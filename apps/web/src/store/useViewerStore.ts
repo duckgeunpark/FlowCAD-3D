@@ -3,6 +3,7 @@ import type {
   DesignMode,
   Diagnostic,
   DiagnosticLevel,
+  ElementParams,
   JointPort,
   SceneDocument,
   SceneElement,
@@ -12,10 +13,14 @@ import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
 
 export type ViewMode = "true_scale" | "iso";
 export type LabelMode = "auto" | "all" | "joints" | "none";
-export type AddFromJointKind = "straight" | "elbow" | "tee" | "valve" | "damper" | "reducer";
-/** Extra parameters for a part added from a 3D joint (e.g. a chosen elbow angle). */
-export interface AddFromJointOptions {
-  angle?: number;
+
+export interface SelectedJointContext {
+  jointId: string;
+  jointNo: string;
+  role: string;
+  parentSeq: string | number;
+  elementId: string;
+  dimensions: Record<string, number>;
 }
 
 interface ViewerState {
@@ -24,6 +29,7 @@ interface ViewerState {
   scene: SceneDocument | null;
   selectedId: string | null;
   selectedJointId: string | null;
+  selectedJointContext: SelectedJointContext | null;
   hoveredId: string | null;
   hoveredJointId: string | null;
   searchTerm: string;
@@ -40,13 +46,9 @@ interface ViewerState {
   selectJoint: (id: string | null) => void;
   hover: (id: string | null) => void;
   hoverJoint: (id: string | null) => void;
-  addFromJoint: (kind: AddFromJointKind, opts?: AddFromJointOptions) => void;
-  addTap: (parentSeq: string | number, angle: number) => void;
-  /** Append a standard-catalog fitting row (part_type = catalog id + resolved
-   * dimensions) connected to the current last part, then regenerate + select. */
   addCatalogFitting: (
     fittingId: string,
-    values: Record<string, number>,
+    values: Record<string, number | string>,
     opts?: { connectToSeq?: string | number; connectPort?: string },
   ) => void;
   rotateFitting: (id: string, deltaDeg: number) => void;
@@ -57,22 +59,13 @@ interface ViewerState {
   setLoading: (v: boolean) => void;
 }
 
-// part_type written into a new table row when adding from a 3D joint.
-const PART_TYPE_FOR: Record<AddFromJointKind, string> = {
-  straight: "straight",
-  elbow: "elbow",
-  tee: "tee",
-  valve: "valve",
-  damper: "damper",
-  reducer: "reducer",
-};
-
 export const useViewerStore = create<ViewerState>((set, get) => ({
   mode: "pipe",
   rows: sampleRowsFor("pipe"),
   scene: null,
   selectedId: null,
   selectedJointId: null,
+  selectedJointContext: null,
   hoveredId: null,
   hoveredJointId: null,
   searchTerm: "",
@@ -84,10 +77,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setRows: (rows) => set({ rows }),
 
-  // Single generation path: the table is the source of truth, the backend
-  // computes every position. 3D edits (add/rotate) mutate ``rows`` then call
-  // this, so connected parts re-propagate automatically. Selection is preserved
-  // (element ids are stable ``A{seq}``) so an open DetailPanel stays put.
   regenerate: async () => {
     const { mode, rows } = get();
     set({ loading: true, error: null });
@@ -96,90 +85,57 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       set({ scene, loading: false });
     } catch (e) {
       set({
-        error: e instanceof Error ? e.message : "알 수 없는 오류",
+        error: e instanceof Error ? e.message : "3D 생성 실패",
         scene: null,
         loading: false,
       });
     }
   },
 
-  setScene: (scene) => set({ scene, selectedId: null, selectedJointId: null, hoveredId: null, hoveredJointId: null }),
-  select: (selectedId) => set({ selectedId, selectedJointId: null }),
-  selectJoint: (selectedJointId) => set({ selectedJointId, selectedId: null }),
+  setScene: (scene) => set({
+    scene,
+    selectedId: null,
+    selectedJointId: null,
+    selectedJointContext: null,
+    hoveredId: null,
+    hoveredJointId: null,
+  }),
+  select: (selectedId) => set({
+    selectedId,
+    selectedJointId: null,
+    selectedJointContext: null,
+  }),
+  selectJoint: (selectedJointId) => {
+    const context = selectedJointId ? selectedJointContextFor(get().scene, selectedJointId) : null;
+    set({ selectedJointId, selectedJointContext: context, selectedId: null });
+  },
   hover: (hoveredId) => set({ hoveredId }),
   hoverJoint: (hoveredJointId) => set({ hoveredJointId }),
 
-  addFromJoint: (kind, opts) => {
-    const { scene, selectedJointId, rows, mode } = get();
-    if (!scene || !selectedJointId) return;
-    const source = findJoint(scene, selectedJointId);
-    if (!source || !source.joint.open) return;
-
-    const parentSeq = seqOf(source.element);
-    if (parentSeq == null) return;
-    const newSeq = nextSeq(rows);
-
-    const elbowAngle = opts?.angle ?? 90;
-    const row: TableRow = {
-      seq: newSeq,
-      system_type: mode,
-      part_type: PART_TYPE_FOR[kind],
-      spec: "", // blank -> inherits the connected part's spec/section
-      size_a: "",
-      size_b: "",
-      length: kind === "straight" ? 1000 : kind === "reducer" ? 300 : "",
-      angle: kind === "elbow" ? elbowAngle : "",
-      connect_to_seq: parentSeq,
-      connect_port: source.joint.role,
-      note: "3D에서 추가",
-    };
-
-    set({ rows: [...rows, row], selectedJointId: null });
-    void get()
-      .regenerate()
-      .then(() => set({ selectedId: `A${newSeq}` }));
-  },
-
-  addTap: (parentSeq, angle) => {
-    const { rows, mode } = get();
-    const newSeq = nextSeq(rows);
-    // A branch that taps the side of the parent straight (HVAC duct branching):
-    // straight piece, connected via the "tap" port at mid-length by default.
-    const row: TableRow = {
-      seq: newSeq,
-      system_type: mode,
-      part_type: "straight",
-      spec: "",
-      size_a: "",
-      size_b: "",
-      length: 1000,
-      angle,
-      connect_to_seq: parentSeq,
-      connect_port: "tap@0.5",
-      note: angle === 45 ? "45° 래터럴(탭)" : "옆면 분기(탭)",
-    };
-    set({ rows: [...rows, row] });
-    void get()
-      .regenerate()
-      .then(() => set({ selectedId: `A${newSeq}` }));
-  },
-
   addCatalogFitting: (fittingId, values, opts) => {
-    const { rows } = get();
+    const { rows, selectedJointContext } = get();
+    const context = opts ? null : selectedJointContext;
+
     const newSeq = nextSeq(rows);
-    const last = rows[rows.length - 1];
-    const connectTo = opts?.connectToSeq ?? (last ? last.seq : "");
     const row: TableRow = {
       seq: newSeq,
       system_type: "duct",
       part_type: fittingId,
       spec: "",
-      connect_to_seq: connectTo ?? "",
-      connect_port: opts?.connectPort ?? (connectTo === "" ? "start" : "end"),
-      note: "카탈로그",
+      connect_to_seq: opts?.connectToSeq ?? context?.parentSeq ?? "",
+      connect_port: opts?.connectPort ?? context?.role ?? "start",
+      note: context ? "표준피팅" : "표준피팅 시작",
+      ...(context?.dimensions ?? {}),
       ...values,
     };
-    set({ rows: [...rows, row] });
+
+    set({
+      mode: "duct",
+      rows: [...rows, row],
+      selectedJointId: null,
+      selectedJointContext: null,
+      error: null,
+    });
     void get()
       .regenerate()
       .then(() => set({ selectedId: `A${newSeq}` }));
@@ -193,7 +149,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     const idx = rows.findIndex((r) => String(r.seq) === seq);
     if (idx < 0) return;
 
-    // Rectangular fittings snap to 90° (matches the backend roll quantisation).
     const rectangular = element.params.width != null || element.params.height != null;
     const current = Number(rows[idx].rotation ?? 0) || 0;
     let next = current + deltaDeg;
@@ -212,10 +167,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setLoading: (loading) => set({ loading }),
 }));
 
-/**
- * Visibility/emphasis rule for an element given the current search term.
- * Implements plan §3.2: non-matching elements fade to 20% opacity.
- */
 export function matchesSearch(
   userData: Record<string, string>,
   term: string,
@@ -229,7 +180,6 @@ export function matchesSearch(
 
 const _LEVEL_RANK: Record<DiagnosticLevel, number> = { info: 0, warning: 1, error: 2 };
 
-/** Group a scene's diagnostics by the input row (`seq`) they refer to. */
 export function diagnosticsBySeq(
   scene: SceneDocument | null,
 ): Map<string, Diagnostic[]> {
@@ -244,13 +194,31 @@ export function diagnosticsBySeq(
   return map;
 }
 
-/** The highest-severity level among a list of diagnostics (null if empty). */
 export function worstLevel(diags: Diagnostic[]): DiagnosticLevel | null {
   let worst: DiagnosticLevel | null = null;
   for (const d of diags) {
     if (worst === null || _LEVEL_RANK[d.level] > _LEVEL_RANK[worst]) worst = d.level;
   }
   return worst;
+}
+
+function selectedJointContextFor(
+  scene: SceneDocument | null,
+  jointId: string,
+): SelectedJointContext | null {
+  if (!scene) return null;
+  const source = findJoint(scene, jointId);
+  if (!source || !source.joint.open) return null;
+  const parentSeq = seqOf(source.element);
+  if (parentSeq == null) return null;
+  return {
+    jointId,
+    jointNo: source.joint.no,
+    role: source.joint.role,
+    parentSeq,
+    elementId: source.element.id,
+    dimensions: dimensionsForJoint(source.element, source.joint),
+  };
 }
 
 function findJoint(scene: SceneDocument, jointId: string): { element: SceneElement; joint: JointPort } | null {
@@ -261,18 +229,47 @@ function findJoint(scene: SceneDocument, jointId: string): { element: SceneEleme
   return null;
 }
 
-/** Recover the input-row seq from a backend element id (``A{seq}``). */
+function dimensionsForJoint(element: SceneElement, joint: JointPort): Record<string, number> {
+  const p = element.params;
+  const transitionDims = transitionDimensionsForRole(p, joint.role);
+  if (transitionDims) return transitionDims;
+  if (p.width != null && p.height != null) {
+    return { W: Math.round(p.width), H: Math.round(p.height) };
+  }
+  if (p.radius != null) {
+    return { D: Math.round(p.radius * 2) };
+  }
+  return {};
+}
+
+function transitionDimensionsForRole(
+  p: ElementParams,
+  role: string,
+): Record<string, number> | null {
+  if (p.fromShape == null && p.toShape == null) return null;
+  const inlet = role === "in" || role === "start";
+  const shape = inlet ? p.fromShape : p.toShape;
+  const width = inlet ? p.fromWidth : p.toWidth;
+  const height = inlet ? p.fromHeight : p.toHeight;
+  const radius = inlet ? p.fromRadius : p.toRadius;
+  if (shape === "rectangular" && width != null && height != null) {
+    return { W: Math.round(width), H: Math.round(height) };
+  }
+  if (shape === "round" && radius != null) {
+    return { D: Math.round(radius * 2) };
+  }
+  return null;
+}
+
 function seqFromElementId(id: string): string | null {
   const match = /^A(.+)$/.exec(id);
   return match ? match[1] : null;
 }
 
-/** The seq an element was generated from (its id, falling back to userData). */
 function seqOf(element: SceneElement): string | number | null {
   return seqFromElementId(element.id) ?? element.userData.seq ?? null;
 }
 
-/** Next free numeric seq for a new row. */
 function nextSeq(rows: TableRow[]): number {
   let max = 0;
   for (const r of rows) {

@@ -2,25 +2,27 @@ import type { DesignMode } from "@flowcad/shared";
 
 export type TableRow = Record<string, string | number>;
 
-// Plan_v2 `user_input` schema: the user supplies only assembly order +
-// connectivity + key dimensions. The backend assembly engine computes every
-// position/orientation from `connect_to_seq` / `connect_port` + `angle`.
+// User input schema: assembly order + connectivity + key dimensions.
+// The backend computes position/orientation from connection and direction data.
 export const ASSEMBLY_COLUMNS = [
   "seq", "system_type", "part_type", "spec",
   "size_a", "size_b", "length", "angle", "bend_to",
+  "offset_direction", "rotation",
+  "W", "H", "D", "L", "R",
+  "toW", "toH", "toD",
+  "branchW", "branchH", "branchD",
+  "offset", "X", "NL", "gores",
   "connect_to_seq", "connect_port", "note",
 ];
 
-// Absolute world outlet directions an elbow can be aimed at (see backend
-// `_parse_direction`). Empty = default angle-driven routing (turns in plan).
 export const ELBOW_DIRECTIONS: { value: string; label: string }[] = [
   { value: "", label: "기본(수평)" },
-  { value: "up", label: "↑ 위로" },
-  { value: "down", label: "↓ 아래로" },
-  { value: "n", label: "북 (+Y)" },
-  { value: "s", label: "남 (−Y)" },
-  { value: "e", label: "동 (+X)" },
-  { value: "w", label: "서 (−X)" },
+  { value: "up", label: "상(+Z)" },
+  { value: "down", label: "하(-Z)" },
+  { value: "n", label: "북(+Y)" },
+  { value: "s", label: "남(-Y)" },
+  { value: "e", label: "동(+X)" },
+  { value: "w", label: "서(-X)" },
 ];
 
 export const PIPE_COLUMNS = ASSEMBLY_COLUMNS;
@@ -36,11 +38,11 @@ export const SAMPLE_PIPE_ROWS: TableRow[] = [
 ];
 
 export const SAMPLE_DUCT_ROWS: TableRow[] = [
-  { seq: 1, system_type: "duct", part_type: "straight", spec: "GI", size_a: 500, size_b: 300, length: 1500, angle: "", connect_to_seq: "", connect_port: "start", note: "시작 덕트" },
-  { seq: 2, system_type: "duct", part_type: "elbow", spec: "GI", size_a: "", size_b: "", length: "", angle: 90, connect_to_seq: 1, connect_port: "end", note: "90도 전환" },
-  { seq: 3, system_type: "duct", part_type: "straight", spec: "GI", size_a: 500, size_b: 300, length: 1200, angle: "", connect_to_seq: 2, connect_port: "out", note: "연장" },
-  { seq: 4, system_type: "duct", part_type: "transition", spec: "GI", size_a: 350, size_b: "", length: 500, angle: "", connect_to_seq: 3, connect_port: "end", note: "원형 변환관" },
-  { seq: 5, system_type: "duct", part_type: "straight", spec: "GI", size_a: 350, size_b: "", length: 1800, angle: "", connect_to_seq: 4, connect_port: "end", note: "원형 직관" },
+  { seq: 1, system_type: "duct", part_type: "rect_straight", spec: "GI", W: 500, H: 300, L: 1500, length: 1500, connect_to_seq: "", connect_port: "start", note: "시작 덕트" },
+  { seq: 2, system_type: "duct", part_type: "rect_elbow", spec: "GI", W: 500, H: 300, angle: 90, R: 500, connect_to_seq: 1, connect_port: "end", note: "90도 전환" },
+  { seq: 3, system_type: "duct", part_type: "rect_straight", spec: "GI", W: 500, H: 300, L: 1200, length: 1200, connect_to_seq: 2, connect_port: "out", note: "연장" },
+  { seq: 4, system_type: "duct", part_type: "rect_to_round", spec: "GI", W: 500, H: 300, toD: 350, L: 500, length: 500, connect_to_seq: 3, connect_port: "end", note: "원형 변환" },
+  { seq: 5, system_type: "duct", part_type: "round_straight", spec: "GI", D: 350, L: 1800, length: 1800, connect_to_seq: 4, connect_port: "end", note: "원형 직관" },
 ];
 
 export function sampleRowsFor(mode: DesignMode): TableRow[] {

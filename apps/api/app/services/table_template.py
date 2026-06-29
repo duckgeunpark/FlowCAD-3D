@@ -1,9 +1,4 @@
-"""Canonical input-table columns + empty Excel template generation / upload parse.
-
-The column order here is the single source of truth for the input schema; the
-frontend `sampleData.ts` mirrors it. Templates are emitted as real .xlsx so
-users can fill values in Excel and upload them back.
-"""
+"""Canonical input-table columns + Excel/CSV transport normalization."""
 from __future__ import annotations
 
 import io
@@ -11,23 +6,89 @@ import io
 from ..domain.enums import DesignMode
 from ..parsing.base import Row
 
-# Plan_v2 `user_input` schema: assembly order + connectivity + key dimensions.
-# Positions/orientations are computed by the backend assembly engine.
+# This is the backend-owned transport schema. The frontend table mirrors this
+# list until the project grows a generated shared schema.
 _ASSEMBLY_COLUMNS = [
     "seq", "system_type", "part_type", "spec",
     "size_a", "size_b", "length", "angle",
+    "bend_to", "offset_direction", "rotation",
+    "W", "H", "D", "L", "R",
+    "toW", "toH", "toD",
+    "branchW", "branchH", "branchD",
+    "offset", "X", "NL", "gores",
     "connect_to_seq", "connect_port", "note",
 ]
 PIPE_COLUMNS = _ASSEMBLY_COLUMNS
 DUCT_COLUMNS = _ASSEMBLY_COLUMNS
 
-# One guiding example row per mode (helps users understand units/values).
-_PIPE_EXAMPLE = [1, "pipe", "straight", "SCH40", 100, "", 3000, "", "", "start", "시작 배관"]
-_DUCT_EXAMPLE = [1, "duct", "straight", "GI", 500, 300, 1500, "", "", "start", "시작 덕트"]
+_PIPE_EXAMPLE = [
+    1, "pipe", "straight", "SCH40", 100, "", 3000, "",
+    "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    "", "", "", "", "", "start", "start pipe",
+]
+_DUCT_EXAMPLE = [
+    1, "duct", "rect_straight", "GI", "", "", "", "",
+    "", "", "", 500, 300, "", 1220, "", "", "", "", "", "",
+    "", "", "", "", "", "", "start", "start duct",
+]
+
+_HEADER_ALIASES = {
+    "sequence": "seq",
+    "no": "seq",
+    "번호": "seq",
+    "순번": "seq",
+    "계통": "system_type",
+    "시스템": "system_type",
+    "종류": "part_type",
+    "부품종류": "part_type",
+    "피팅": "part_type",
+    "표준피팅": "part_type",
+    "규격": "spec",
+    "규격코드": "spec",
+    "치수a": "size_a",
+    "치수b": "size_b",
+    "가로": "W",
+    "폭": "W",
+    "세로": "H",
+    "높이": "H",
+    "직경": "D",
+    "지름": "D",
+    "길이": "L",
+    "반경": "R",
+    "출구가로": "toW",
+    "출구세로": "toH",
+    "출구직경": "toD",
+    "분기가로": "branchW",
+    "분기세로": "branchH",
+    "분기직경": "branchD",
+    "각도": "angle",
+    "엘보방향": "bend_to",
+    "방향": "bend_to",
+    "오프셋방향": "offset_direction",
+    "회전": "rotation",
+    "연결대상": "connect_to_seq",
+    "연결seq": "connect_to_seq",
+    "연결포트": "connect_port",
+    "비고": "note",
+}
 
 
 def columns_for(mode: DesignMode) -> list[str]:
     return PIPE_COLUMNS if mode is DesignMode.PIPE else DUCT_COLUMNS
+
+
+def normalize_table_rows(rows: list[Row]) -> list[Row]:
+    """Normalize parsed transport rows into canonical design-table rows."""
+    normalized: list[Row] = []
+    for raw in rows:
+        row: Row = {}
+        for key, value in raw.items():
+            canonical = _canonical_header(key)
+            if canonical:
+                row[canonical] = value
+        _fill_compat_dimensions(row)
+        normalized.append(row)
+    return normalized
 
 
 def build_template_xlsx(mode: DesignMode) -> bytes:
@@ -60,11 +121,11 @@ def build_template_xlsx(mode: DesignMode) -> bytes:
 
 
 def load_table(filename: str, data: bytes) -> list[Row]:
-    """Parse an uploaded .xlsx or .csv into rows (for table population)."""
+    """Parse an uploaded .xlsx/.csv and normalize it for table/generation use."""
     if filename.lower().endswith((".xlsx", ".xlsm")):
-        return _load_xlsx(data)
+        return normalize_table_rows(_load_xlsx(data))
     from .csv_loader import load_csv
-    return load_csv(data)
+    return normalize_table_rows(load_csv(data))
 
 
 def _load_xlsx(data: bytes) -> list[Row]:
@@ -88,3 +149,39 @@ def _load_xlsx(data: bytes) -> list[Row]:
                 row[key] = "" if value is None else value
         rows.append(row)
     return rows
+
+
+def _canonical_header(header: object) -> str:
+    raw = str(header or "").strip()
+    if not raw:
+        return ""
+    if raw in _ASSEMBLY_COLUMNS:
+        return raw
+    compact = raw.lower().replace(" ", "").replace("_", "").replace("-", "")
+    for col in _ASSEMBLY_COLUMNS:
+        if compact == col.lower().replace("_", ""):
+            return col
+    return _HEADER_ALIASES.get(compact, raw)
+
+
+def _fill_compat_dimensions(row: Row) -> None:
+    """Populate legacy size columns for existing table and assembly logic."""
+    part_type = str(row.get("part_type", "")).strip().lower()
+    if row.get("length") in (None, "") and row.get("L") not in (None, ""):
+        row["length"] = row["L"]
+    if row.get("size_a") not in (None, ""):
+        return
+    if part_type.startswith("transition"):
+        if row.get("toD") not in (None, ""):
+            row["size_a"] = row["toD"]
+        elif row.get("toW") not in (None, ""):
+            row["size_a"] = row["toW"]
+        if row.get("size_b") in (None, "") and row.get("toH") not in (None, ""):
+            row["size_b"] = row["toH"]
+        return
+    if row.get("W") not in (None, ""):
+        row["size_a"] = row["W"]
+        if row.get("size_b") in (None, "") and row.get("H") not in (None, ""):
+            row["size_b"] = row["H"]
+    elif row.get("D") not in (None, ""):
+        row["size_a"] = row["D"]

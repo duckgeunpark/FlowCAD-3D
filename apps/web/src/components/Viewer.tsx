@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -16,7 +16,6 @@ import type { JointPort } from "@flowcad/shared";
 import { ElementMesh } from "@/three/GeometryFactory";
 import { toThree } from "@/three/coords";
 import { matchesSearch, useViewerStore } from "@/store/useViewerStore";
-import type { AddFromJointKind } from "@/store/useViewerStore";
 
 export function Viewer() {
   const { scene, viewMode } = useViewerStore();
@@ -80,7 +79,7 @@ function sceneKey(scene: { elements: { id: string }[] }): string {
 /**
  * Reads the camera heading every frame and rotates the on-screen compass needle
  * so it always points at world North (engineering +Y = three +Z). Writes the CSS
- * transform directly on the DOM node — no React re-render per frame.
+ * transform directly on the DOM node, avoiding a React re-render per frame.
  */
 function CompassTracker({
   needleRef,
@@ -131,7 +130,7 @@ function NorthCompass({
     <button
       type="button"
       onDoubleClick={onReset}
-      title="더블클릭: 현재 보는 방향을 북쪽으로 재설정"
+      title="Double-click to set current view as north"
       className="absolute top-3 left-3 w-14 h-14 rounded-full bg-panel/80 border border-panelLight backdrop-blur shadow-lg flex items-center justify-center select-none cursor-pointer hover:border-accent"
     >
       <div ref={needleRef} className="relative w-full h-full will-change-transform pointer-events-none">
@@ -197,7 +196,7 @@ function SceneContent() {
 }
 
 function JointMarkers() {
-  const { scene, selectedJointId, hoveredJointId, selectJoint, hoverJoint, mode, labelMode } = useViewerStore();
+  const { scene, selectedJointId, hoveredJointId, selectJoint, hoverJoint, labelMode } = useViewerStore();
   if (!scene) return null;
 
   return (
@@ -239,12 +238,9 @@ function JointMarkers() {
                   }}
                   title={`${element.itemNo} ${joint.role}`}
                 >
-                  {element.itemNo} · {joint.no}{joint.open ? " (빈 조인트)" : ""}
+                  {element.itemNo} · {joint.no}{joint.open ? " (열린 조인트)" : ""}
                 </button>
               </Html>
-            )}
-            {selectedJointId === joint.id && joint.open && (
-              <JointAddMenu joint={joint} showDamper={mode === "duct" || element.kind === "duct_segment"} />
             )}
           </group>
         )),
@@ -264,56 +260,5 @@ function shouldShowJointLabel(
   return jointId === selectedJointId || jointId === hoveredJointId;
 }
 
-// Quick-pick elbow angles offered in the joint menu. Arbitrary angles (0–90°)
-// can still be typed into the table's 각도° column; these are the common presets.
-const ELBOW_ANGLES = [45, 90] as const;
 
-function JointAddMenu({ joint, showDamper }: { joint: JointPort; showDamper: boolean }) {
-  const { addFromJoint, mode } = useViewerStore();
-  // Non-elbow parts (the elbow gets its own angle-aware row below).
-  const buttons: { key: AddFromJointKind; label: string }[] = [
-    { key: "straight", label: "직관" },
-    { key: "tee", label: "티" },
-    { key: "valve", label: "밸브" },
-    { key: "reducer", label: mode === "pipe" ? "레듀샤" : "레듀샤/트랜지션" },
-  ];
-  if (showDamper) buttons.push({ key: "damper", label: "댐퍼" });
 
-  return (
-    <Html center distanceFactor={7000} position={[0, 160, 0]}>
-      <div className="rounded-lg border border-emerald-300 bg-panel/95 shadow-xl p-2 min-w-44">
-        <div className="text-[11px] text-emerald-200 mb-1 font-mono">{joint.no}</div>
-        <div className="grid grid-cols-2 gap-1">
-          {buttons.map((button) => (
-            <button
-              key={button.key}
-              className="px-2 py-1 rounded bg-accent text-white text-xs hover:bg-blue-500 truncate"
-              onClick={(event) => {
-                event.stopPropagation();
-                addFromJoint(button.key);
-              }}
-            >
-              {button.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-1.5 flex items-center gap-1">
-          <span className="text-[11px] text-gray-300 shrink-0">엘보</span>
-          {ELBOW_ANGLES.map((angle) => (
-            <button
-              key={angle}
-              className="flex-1 px-2 py-1 rounded bg-blue-700 text-white text-xs hover:bg-blue-500"
-              title={`${angle}° 엘보 추가`}
-              onClick={(event) => {
-                event.stopPropagation();
-                addFromJoint("elbow", { angle });
-              }}
-            >
-              {angle}°
-            </button>
-          ))}
-        </div>
-      </div>
-    </Html>
-  );
-}
