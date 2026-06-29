@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef } from "react";
 import { Toolbar } from "@/components/Toolbar";
+import { FittingPicker } from "@/components/FittingPicker";
 import { TableEditor } from "@/components/TableEditor";
 import { ExportBar } from "@/components/ExportBar";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -151,6 +152,7 @@ export default function Home() {
 
       <div className="flex flex-1 min-h-0">
         <aside className="w-[460px] flex flex-col border-r border-panelLight bg-panel/60 shadow-lg">
+          <FittingPicker />
           <div className="flex-1 min-h-0 flex flex-col">
             <TableEditor mode={mode} rows={rows} onChange={setRows} />
           </div>

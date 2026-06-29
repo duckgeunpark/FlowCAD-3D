@@ -7,8 +7,20 @@ export type TableRow = Record<string, string | number>;
 // position/orientation from `connect_to_seq` / `connect_port` + `angle`.
 export const ASSEMBLY_COLUMNS = [
   "seq", "system_type", "part_type", "spec",
-  "size_a", "size_b", "length", "angle",
+  "size_a", "size_b", "length", "angle", "bend_to",
   "connect_to_seq", "connect_port", "note",
+];
+
+// Absolute world outlet directions an elbow can be aimed at (see backend
+// `_parse_direction`). Empty = default angle-driven routing (turns in plan).
+export const ELBOW_DIRECTIONS: { value: string; label: string }[] = [
+  { value: "", label: "기본(수평)" },
+  { value: "up", label: "↑ 위로" },
+  { value: "down", label: "↓ 아래로" },
+  { value: "n", label: "북 (+Y)" },
+  { value: "s", label: "남 (−Y)" },
+  { value: "e", label: "동 (+X)" },
+  { value: "w", label: "서 (−X)" },
 ];
 
 export const PIPE_COLUMNS = ASSEMBLY_COLUMNS;

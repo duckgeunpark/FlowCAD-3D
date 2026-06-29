@@ -42,6 +42,13 @@ interface ViewerState {
   hoverJoint: (id: string | null) => void;
   addFromJoint: (kind: AddFromJointKind, opts?: AddFromJointOptions) => void;
   addTap: (parentSeq: string | number, angle: number) => void;
+  /** Append a standard-catalog fitting row (part_type = catalog id + resolved
+   * dimensions) connected to the current last part, then regenerate + select. */
+  addCatalogFitting: (
+    fittingId: string,
+    values: Record<string, number>,
+    opts?: { connectToSeq?: string | number; connectPort?: string },
+  ) => void;
   rotateFitting: (id: string, deltaDeg: number) => void;
   setSearch: (term: string) => void;
   setViewMode: (vm: ViewMode) => void;
@@ -150,6 +157,27 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       connect_to_seq: parentSeq,
       connect_port: "tap@0.5",
       note: angle === 45 ? "45° 래터럴(탭)" : "옆면 분기(탭)",
+    };
+    set({ rows: [...rows, row] });
+    void get()
+      .regenerate()
+      .then(() => set({ selectedId: `A${newSeq}` }));
+  },
+
+  addCatalogFitting: (fittingId, values, opts) => {
+    const { rows } = get();
+    const newSeq = nextSeq(rows);
+    const last = rows[rows.length - 1];
+    const connectTo = opts?.connectToSeq ?? (last ? last.seq : "");
+    const row: TableRow = {
+      seq: newSeq,
+      system_type: "duct",
+      part_type: fittingId,
+      spec: "",
+      connect_to_seq: connectTo ?? "",
+      connect_port: opts?.connectPort ?? (connectTo === "" ? "start" : "end"),
+      note: "카탈로그",
+      ...values,
     };
     set({ rows: [...rows, row] });
     void get()

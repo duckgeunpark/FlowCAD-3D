@@ -174,8 +174,43 @@ class ResolvedPart:
     taps: list[tuple[Vec3, list[float]]] = field(default_factory=list)
 
 
+# ---- BNPP HVAC standard catalog (drawing 0-294-M172-902) ------------------- #
+# Each selectable catalog fitting id maps to an assembly behaviour. Fittings whose
+# geometry matches an existing primitive reuse it; genuinely new shapes are listed
+# in ``_CATALOG_PENDING`` and surface a diagnostic until their dedicated geometry
+# is built (see .omc/autopilot/spec.md milestones M3-M5).
+_CATALOG_BEHAVIOR: dict[str, tuple[str, ComponentKind | None]] = {
+    "rect_straight": ("segment", None),
+    "round_straight": ("segment", None),
+    "rect_radius_elbow": ("fitting", ComponentKind.ELBOW),
+    "rect_mitered_elbow_90": ("fitting", ComponentKind.ELBOW),
+    "round_elbow": ("fitting", ComponentKind.ELBOW),
+    "transition_round_round": ("transition", ComponentKind.TRANSITION),
+    "transition_rect_round": ("transition", ComponentKind.TRANSITION),
+    "transition_rect_rect": ("transition", ComponentKind.TRANSITION),
+    "rect_straight_tee": ("fitting", ComponentKind.TEE),
+    "rect_radius_tee": ("fitting", ComponentKind.TEE),
+    "conical_tee": ("fitting", ComponentKind.TEE),
+    "combination_tee": ("fitting", ComponentKind.TEE),
+    "round_straight_tee": ("fitting", ComponentKind.TEE),
+    "straight_tapped_tee": ("fitting", ComponentKind.TEE),
+    "rect_45_tapped_tee": ("fitting", ComponentKind.TEE),
+    "rect_double_45_tapped_tee": ("fitting", ComponentKind.TEE),
+}
+_CATALOG_PENDING = {
+    "rect_straight_offset", "rect_radius_offset", "round_mitered_offset",
+    "round_radius_offset", "rect_two_way_wye", "symmetrical_wye_rect",
+    "rect_45_lateral", "conical_45_lateral", "rect_end_cap", "round_end_cap",
+    "access_door",
+}
+
+
 def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
     pt = part_type.strip().lower()
+    if pt in _CATALOG_BEHAVIOR:
+        return _CATALOG_BEHAVIOR[pt]
+    if pt in _CATALOG_PENDING:
+        return "pending", None
     if pt in _ELBOW_TYPES:
         return "fitting", ComponentKind.ELBOW
     if pt in _TEE_TYPES:
@@ -190,6 +225,37 @@ def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
         return "cap", None
     # default: a straight segment (also covers 'pipe'/'duct'/'straight')
     return "segment", None
+
+
+def _normalize_catalog_row(row: dict) -> dict:
+    """Translate catalog dimension keys (W/H/D/R/angle/to*) into the size columns
+    the section/placement logic already understands. Returns a shallow copy so the
+    caller's row is untouched; non-catalog rows pass through unchanged."""
+    pt = str(row.get("part_type", "")).strip().lower()
+    if pt not in _CATALOG_BEHAVIOR:
+        return row
+    r = dict(row)
+    w, h, d = _num(row.get("W")), _num(row.get("H")), _num(row.get("D"))
+    if pt.startswith("transition"):
+        # Inlet section is inherited from the parent; the row carries the OUTLET.
+        to_d, to_w, to_h = _num(row.get("toD")), _num(row.get("toW")), _num(row.get("toH"))
+        if to_d is not None:
+            r["size_a"], r["diameter"] = to_d, to_d
+            r.pop("size_b", None)
+        else:
+            if to_w is not None:
+                r["size_a"] = to_w
+            if to_h is not None:
+                r["size_b"] = to_h
+    else:
+        # rect -> size_a x size_b; round (D only) -> size_a is the diameter.
+        if w is not None:
+            r["size_a"] = w
+        if h is not None:
+            r["size_b"] = h
+        if d is not None and w is None:
+            r["size_a"], r["diameter"] = d, d
+    return r
 
 
 def _diag(
@@ -404,9 +470,23 @@ class AssemblyResolver:
                 system_type = mode.value
             part_type = str(row.get("part_type", row.get("item_type", "straight")))
             role, kind = _classify(part_type)
+            # Catalog rows (standard 0-294-M172-902) carry W/H/D/to* dimensions;
+            # translate them to the size columns the resolver expects.
+            row = _normalize_catalog_row(row)
 
             if seq in parts:
                 raise AssemblyError(f"중복된 seq 값: {seq}", seq=seq)
+
+            if role == "pending":
+                # Recognised catalog fitting whose standard-exact geometry is not
+                # built yet: report it (so the user sees it was understood) and
+                # skip placing geometry rather than rendering a wrong shape.
+                errors.append(_diag(
+                    "warning", "FITTING_PENDING", seq,
+                    f"'{part_type}' 표준 형상은 아직 구현 중입니다.",
+                    suggestion="현재 단계에서 렌더되지 않습니다(단계적 구현).",
+                ))
+                continue
 
             connect_to = str(row.get("connect_to_seq", "")).strip()
             connect_port = str(row.get("connect_port", "")).strip().lower() or "end"
@@ -482,8 +562,18 @@ class AssemblyResolver:
         if role == "fitting" and kind is ComponentKind.ELBOW:
             angle = _num(row.get("angle"))
             override = _parse_direction(row.get("direction"))
+            # ``bend_to`` is an *absolute* world outlet direction (e.g. "up"/"z+"),
+            # independent of the incoming heading: the elbow's out-face points that
+            # way and the turn magnitude is derived from in vs out. This is what the
+            # UI's direction picker writes so "위로" always means world +Z. It is
+            # ignored when (anti)parallel to the inlet (no bend possible there).
+            bend_to = _parse_direction(row.get("bend_to"))
+            if bend_to is not None and abs(_dot(_norm(bend_to), h_in)) > 0.999:
+                bend_to = None
             if override is not None:
                 out_dir = override
+            elif bend_to is not None:
+                out_dir = _norm(bend_to)
             else:
                 turn = angle if angle is not None else 90.0
                 # ``rotation`` rolls the bend plane about the incoming heading so

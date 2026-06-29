@@ -405,6 +405,101 @@ def test_negative_elbow_angle_turns_the_other_way(service: GenerationService) ->
     assert seg.params["direction"] == pytest.approx([0.0, -1.0, 0.0])
 
 
+def test_elbow_bend_to_up_sends_outlet_vertical(service: GenerationService) -> None:
+    """``bend_to`` is an absolute world outlet: 'up' turns the elbow straight up
+    (+Z) regardless of the incoming heading, with no connection errors."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "size_a": 500, "size_b": 300, "length": 1000, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "elbow", "angle": 90,
+         "bend_to": "up", "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "straight",
+         "size_a": 500, "size_b": 300, "length": 1000, "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    elbow = next(e for e in scene.elements if e.kind is ComponentKind.ELBOW)
+    assert elbow.params["outDirection"] == pytest.approx([0.0, 0.0, 1.0])
+    seg = next(e for e in scene.elements if e.id == "A3")
+    assert seg.params["direction"] == pytest.approx([0.0, 0.0, 1.0])
+    assert [d for d in scene.diagnostics if d.level == "error"] == []
+
+
+def test_elbow_bend_to_is_absolute_across_changing_heading(
+    service: GenerationService,
+) -> None:
+    """After a first elbow swings the heading to +Y, ``bend_to='up'`` still yields
+    world +Z — proving the direction is absolute, not relative to the inlet."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "straight",
+         "size_a": 500, "size_b": 300, "length": 500, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "elbow", "angle": 90,
+         "bend_to": "n", "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "straight",
+         "size_a": 500, "size_b": 300, "length": 500, "connect_to_seq": 2, "connect_port": "out"},
+        {"seq": 4, "system_type": "duct", "part_type": "elbow", "angle": 90,
+         "bend_to": "up", "connect_to_seq": 3, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    elbow2 = next(e for e in scene.elements if e.id == "A4")
+    assert elbow2.params["outDirection"] == pytest.approx([0.0, 0.0, 1.0])
+
+
+def test_elbow_bend_to_parallel_to_inlet_is_ignored(service: GenerationService) -> None:
+    """A bend_to collinear with the inlet (no turn possible) falls back to the
+    default angle-driven routing instead of producing a degenerate elbow."""
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "elbow", "angle": 90,
+         "bend_to": "e", "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "pipe", "part_type": "straight", "length": 1000,
+         "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    seg = next(e for e in scene.elements if e.id == "A3")
+    # Inlet is +X, so 'e' (+X) is unreachable; default 90° turn goes north.
+    assert seg.params["direction"] == pytest.approx([0.0, 1.0, 0.0])
+
+
+def test_catalog_fitting_ids_render_via_dispatch(service: GenerationService) -> None:
+    """Standard-catalog rows (W/H/D dimension keys, part_type = catalog id) route
+    to geometry: rect straight + radius elbow + rect→round transition + round."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "rect_straight",
+         "W": 500, "H": 300, "L": 1200, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "rect_radius_elbow",
+         "W": 500, "H": 300, "angle": 90, "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "duct", "part_type": "transition_rect_round",
+         "toD": 350, "L": 500, "connect_to_seq": 2, "connect_port": "out"},
+        {"seq": 4, "system_type": "duct", "part_type": "round_straight",
+         "D": 350, "L": 800, "connect_to_seq": 3, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    kinds = {e.id: e.kind for e in scene.elements}
+    assert kinds["A1"] is ComponentKind.DUCT_SEGMENT
+    assert kinds["A2"] is ComponentKind.ELBOW
+    assert kinds["A3"] is ComponentKind.TRANSITION
+    assert kinds["A4"] is ComponentKind.DUCT_SEGMENT
+    # The rect elbow inherited its 500x300 section from the dimension keys.
+    assert scene.elements[1].params["width"] == pytest.approx(500.0)
+
+
+def test_pending_catalog_fitting_warns_and_renders_nothing(
+    service: GenerationService,
+) -> None:
+    """A recognised-but-unbuilt catalog shape surfaces a FITTING_PENDING warning
+    and produces no geometry (rather than a wrong shape)."""
+    rows = [
+        {"seq": 1, "system_type": "duct", "part_type": "rect_straight",
+         "W": 500, "H": 300, "L": 1000, "connect_port": "start"},
+        {"seq": 2, "system_type": "duct", "part_type": "rect_45_lateral",
+         "W": 500, "H": 300, "branchW": 250, "branchH": 200, "angle": 45,
+         "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.DUCT, rows)
+    assert "A2" not in {e.id for e in scene.elements}
+    assert "FITTING_PENDING" in _codes(scene)
+
+
 def test_direction_vector_form_is_accepted(service: GenerationService) -> None:
     rows = [
         {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100,

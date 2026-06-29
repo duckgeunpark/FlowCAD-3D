@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignMode } from "@flowcad/shared";
 import type { DiagnosticLevel } from "@flowcad/shared";
-import { columnsFor, type TableRow } from "@/lib/sampleData";
+import { columnsFor, ELBOW_DIRECTIONS, type TableRow } from "@/lib/sampleData";
 import { downloadTemplate, uploadTable } from "@/lib/api";
 import { diagnosticsBySeq, useViewerStore, worstLevel } from "@/store/useViewerStore";
 import { summarize, toCsv, download } from "@/lib/bom";
@@ -33,6 +33,7 @@ const LABELS: Record<string, string> = {
   size_b: "치수B",
   length: "길이(mm)",
   angle: "각도°",
+  bend_to: "엘보 방향",
   connect_to_seq: "연결 대상",
   connect_port: "연결 포트",
   note: "비고",
@@ -47,6 +48,7 @@ const PLACEHOLDERS: Record<string, string> = {
   size_b: "세로(사각만)",
   length: "2000",
   angle: "45 / 90",
+  bend_to: "엘보만",
   connect_to_seq: "1",
   connect_port: "end/out/branch",
   note: "비고",
@@ -227,9 +229,9 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
                 const isSelected = !!seqKey && selected === `A${seqKey}`;
                 // Corner fittings have no straight length — it's computed from
                 // size + angle, so the length cell is locked to avoid confusion.
-                const lengthAuto = ["elbow", "tee"].includes(
-                  String(row.part_type ?? "").toLowerCase(),
-                );
+                const partType = String(row.part_type ?? "").toLowerCase();
+                const lengthAuto = ["elbow", "tee"].includes(partType);
+                const isElbow = partType === "elbow";
                 const tip = diags
                   .map((d) => `${LEVEL_ICON[d.level]} ${d.message}${d.suggestion ? `\n   ↳ ${d.suggestion}` : ""}`)
                   .join("\n");
@@ -253,6 +255,35 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
                         : undefined;
                       const autoLenText =
                         computedLen != null ? `${Math.round(computedLen)} (자동)` : "";
+                      // Elbow outlet direction is a fixed choice, so render it as a
+                      // dropdown on elbow rows and lock it (blank) on everything else.
+                      if (c === "bend_to") {
+                        return (
+                          <td key={c} className="border-b border-panelLight/50 p-0">
+                            {isElbow ? (
+                              <select
+                                value={String(row[c] ?? "")}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => update(rIdx, c, e.target.value)}
+                                className="w-24 bg-transparent px-1.5 py-1 outline-none focus:bg-panelLight text-gray-200 cursor-pointer"
+                              >
+                                {ELBOW_DIRECTIONS.map((d) => (
+                                  <option key={d.value} value={d.value} className="bg-panel">
+                                    {d.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                value=""
+                                disabled
+                                placeholder="—"
+                                className="w-24 bg-transparent px-1.5 py-1 outline-none cursor-not-allowed text-gray-600 placeholder:text-gray-700"
+                              />
+                            )}
+                          </td>
+                        );
+                      }
                       return (
                         <td key={c} className="border-b border-panelLight/50 p-0">
                           <div className="flex items-center">

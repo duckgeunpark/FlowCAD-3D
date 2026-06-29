@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { SceneElement } from "@flowcad/shared";
+import { getFitting } from "@flowcad/shared";
 import { useViewerStore } from "@/store/useViewerStore";
 
 const LABELS: Record<string, string> = {
@@ -44,6 +45,7 @@ export function DetailPanel() {
         <Row label="종류" value={kindLabel(element)} />
         <Row label="ID" value={element.id} />
         {!isError && <DimensionEditor element={element} />}
+        {!isError && <LengthEditor element={element} />}
         {!isError && <TapControls element={element} />}
         {Object.entries(element.userData).map(([k, v]) => (
           <Row key={k} label={LABELS[k] ?? k} value={v || "-"} isHighlight={k === "error"} />
@@ -112,7 +114,10 @@ const PART_TYPE_LABEL: Record<string, string> = {
 
 function kindLabel(element: import("@flowcad/shared").SceneElement): string {
   const pt = element.userData.partType;
-  return (pt && PART_TYPE_LABEL[pt]) || element.kind;
+  if (pt && PART_TYPE_LABEL[pt]) return PART_TYPE_LABEL[pt];
+  // Standard-catalog fittings carry their catalog id as partType.
+  const catalog = pt ? getFitting(pt) : undefined;
+  return catalog?.nameKo ?? element.kind;
 }
 
 /**
@@ -189,6 +194,76 @@ function DimensionEditor({ element }: { element: SceneElement }) {
       {p.bendRadius != null && (
         <Row label="곡률반경 (R)" value={`${Math.round(p.bendRadius)} mm`} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Editable straight-run length for the selected item. Writes the `length` field
+ * back to the matching design row and regenerates. Corner fittings (elbow/tee)
+ * derive their length from size + angle, so they stay read-only here.
+ */
+function LengthEditor({ element }: { element: SceneElement }) {
+  const rows = useViewerStore((s) => s.rows);
+  const setRows = useViewerStore((s) => s.setRows);
+  const regenerate = useViewerStore((s) => s.regenerate);
+
+  const p = element.params;
+  const partType = String(element.userData.partType ?? "").toLowerCase();
+  const isAutoLen =
+    ["elbow", "tee"].includes(partType) ||
+    element.kind === "elbow" ||
+    element.kind === "tee";
+
+  // The straight span from the geometry endpoints (the rendered length).
+  const span =
+    p.start && p.end
+      ? Math.hypot(p.end[0] - p.start[0], p.end[1] - p.start[1], p.end[2] - p.start[2])
+      : null;
+
+  const seq = element.id.replace(/^A/, "");
+  const rowIdx = rows.findIndex((r) => String(r.seq ?? "").trim() === seq);
+  const row = rowIdx >= 0 ? rows[rowIdx] : undefined;
+
+  const [len, setLen] = useState("");
+  useEffect(() => {
+    const rowLen = row?.length;
+    if (rowLen != null && String(rowLen).trim() !== "") {
+      setLen(String(rowLen));
+    } else if (span != null) {
+      setLen(String(Math.round(span)));
+    } else {
+      setLen("");
+    }
+    // re-seed when a different item is selected
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [element.id]);
+
+  const editable = rowIdx >= 0 && !isAutoLen && span != null;
+  if (!editable) {
+    if (span == null) return null;
+    return (
+      <div className="pt-1.5 mt-1.5 border-t border-panelLight">
+        <Row label="길이 (L)" value={`${Math.round(span)} mm${isAutoLen ? " · 자동" : ""}`} />
+      </div>
+    );
+  }
+
+  const commit = () => {
+    setRows(rows.map((r, i) => (i === rowIdx ? { ...r, length: len } : r)));
+    void regenerate();
+  };
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+  };
+
+  return (
+    <div className="pt-1.5 mt-1.5 border-t border-panelLight space-y-1.5">
+      <div className="text-gray-400">길이 (편집 가능, Enter 적용)</div>
+      <div className="flex items-center gap-2">
+        <DimInput label="L" value={len} onChange={setLen} onCommit={commit} onKeyDown={onKey} />
+        <span className="text-gray-500 text-[11px]">mm</span>
+      </div>
     </div>
   );
 }
