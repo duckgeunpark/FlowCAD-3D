@@ -34,14 +34,17 @@ def test_template_roundtrip_pipe() -> None:
 
 
 def test_template_roundtrip_duct() -> None:
+    """The duct template is now the v2 schema (Duct3D_Input); the REQ/OPT spec
+    row is skipped and the example DATA row survives the round-trip."""
     data = build_template_xlsx(DesignMode.DUCT)
     rows = load_table("t.xlsx", data)
-    assert rows[0]["system_type"] == "duct"
-    assert rows[0]["part_type"] == "rect_straight"
-    assert float(rows[0]["W"]) == 500
-    assert float(rows[0]["H"]) == 300
-    assert float(rows[0]["size_a"]) == 500
-    assert float(rows[0]["size_b"]) == 300
+    assert len(rows) == 1  # spec row dropped, one example DATA row
+    assert rows[0]["element_id"] == "E0001"
+    assert rows[0]["element_type"] == "STRAIGHT"
+    assert rows[0]["family_code"] == "STRAIGHT_RECT"
+    assert rows[0]["shape_code"] == "RECT"
+    assert float(rows[0]["width"]) == 500
+    assert float(rows[0]["height"]) == 300
 
 
 def test_load_table_csv_path() -> None:

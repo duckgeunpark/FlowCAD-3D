@@ -260,6 +260,81 @@ def test_duct_rectangular_to_round_transition(service: GenerationService) -> Non
     assert transition.params["toRadius"] == pytest.approx(175)
 
 
+def _v2_duct_rows() -> list[dict]:
+    """A minimal v2 duct line: straight -> 90° elbow -> tee (branch to E0010)."""
+    return [
+        {"row_type": "DATA", "seq": 10, "line_id": "L-001", "element_id": "E0001",
+         "to_element_id": "E0002", "element_type": "STRAIGHT",
+         "family_code": "STRAIGHT_RECT", "shape_code": "RECT",
+         "origin_x": 0, "origin_y": 0, "origin_z": 3000,
+         "end_x": 2000, "end_y": 0, "end_z": 3000, "dir_x": 1, "dir_y": 0, "dir_z": 0,
+         "orientation_code": "XP_XP", "width": 500, "height": 300,
+         "fitting_type": "NONE", "part_name_en": "Straight Duct"},
+        {"row_type": "DATA", "seq": 20, "line_id": "L-001", "element_id": "E0002",
+         "from_element_id": "E0001", "to_element_id": "E0003", "element_type": "FITTING",
+         "family_code": "ELBOW_RECT_90", "shape_code": "RECT",
+         "origin_x": 2000, "origin_y": 0, "origin_z": 3000,
+         "orientation_code": "XP_YP", "dir_x": 0, "dir_y": 1, "dir_z": 0,
+         "width": 500, "height": 300, "fitting_type": "ELBOW", "angle_deg": 90,
+         "part_name_en": "Elbow 90"},
+        {"row_type": "DATA", "seq": 30, "line_id": "L-001", "element_id": "E0003",
+         "from_element_id": "E0002", "to_element_id": "E0004",
+         "branch_to_element_id": "E0010", "element_type": "FITTING",
+         "family_code": "TEE_RECT_BRANCH", "shape_code": "RECT",
+         "origin_x": 2000, "origin_y": 1500, "origin_z": 3000,
+         "orientation_code": "YP_YP_BRANCH_XP", "dir_x": 0, "dir_y": 1, "dir_z": 0,
+         "width": 500, "height": 300, "branch_width": 300, "branch_height": 200,
+         "fitting_type": "TEE", "part_name_en": "Tee"},
+    ]
+
+
+def test_v2_duct_generation_maps_families_to_kinds(service: GenerationService) -> None:
+    scene = service.generate(DesignMode.DUCT, _v2_duct_rows())
+    kinds = {e.id: e.kind for e in scene.elements}
+    assert kinds["E0001"] is ComponentKind.DUCT_SEGMENT
+    assert kinds["E0002"] is ComponentKind.ELBOW
+    assert kinds["E0003"] is ComponentKind.TEE
+    assert len(scene.bom) == 3
+
+
+def test_v2_straight_trims_to_elbow_face(service: GenerationService) -> None:
+    scene = service.generate(DesignMode.DUCT, _v2_duct_rows())
+    seg = next(e for e in scene.elements if e.id == "E0001")
+    # elbow leg for a 500-wide rect duct = W = 500, so the straight ends at x=1500.
+    assert seg.params["start"] == pytest.approx([0.0, 0.0, 3000.0])
+    assert seg.params["end"] == pytest.approx([1500.0, 0.0, 3000.0])
+
+
+def test_v2_elbow_directions_from_orientation_code(service: GenerationService) -> None:
+    scene = service.generate(DesignMode.DUCT, _v2_duct_rows())
+    elbow = next(e for e in scene.elements if e.id == "E0002")
+    assert elbow.params["inDirection"] == pytest.approx([1.0, 0.0, 0.0])
+    assert elbow.params["outDirection"] == pytest.approx([0.0, 1.0, 0.0])
+    assert elbow.params["position"] == pytest.approx([2000.0, 0.0, 3000.0])
+
+
+def test_v2_tee_has_branch_and_shared_joints(service: GenerationService) -> None:
+    scene = service.generate(DesignMode.DUCT, _v2_duct_rows())
+    tee = next(e for e in scene.elements if e.id == "E0003")
+    branches = tee.params["branches"]
+    assert len(branches) == 1
+    assert branches[0]["direction"] == pytest.approx([1.0, 0.0, 0.0])
+    assert branches[0]["width"] == 300 and branches[0]["height"] == 200
+    # The elbow's out joint and the tee's in joint share one number.
+    elbow = next(e for e in scene.elements if e.id == "E0002")
+    shared = {j.no for j in elbow.joints} & {j.no for j in tee.joints}
+    assert "J-E0002_E0003" in shared
+    # The branch to E0010 (not present) is an open port.
+    branch_joint = next(j for j in tee.joints if j.no == "J-E0003_E0010")
+    assert branch_joint.open is True
+
+
+def test_v2_bom_uses_sheet_part_name(service: GenerationService) -> None:
+    scene = service.generate(DesignMode.DUCT, _v2_duct_rows())
+    descriptions = {b.element_id: b.description for b in scene.bom}
+    assert descriptions["E0002"] == "Elbow 90"
+
+
 def test_manual_transition_fitting_has_renderable_span(service: GenerationService) -> None:
     rows = [
         {"run_id": "D1", "seq": 1, "x": 0, "y": 0, "z": 0,

@@ -19,7 +19,25 @@ export type ComponentKind =
   | "duct_segment"
   | "transition"
   | "damper"
-  | "error_marker";
+  | "error_marker"
+  // v2 duct schema additions
+  | "wye"
+  | "cross"
+  | "cap"
+  | "tap"
+  | "splitter";
+
+/** One branch arm of a multi-port fitting (tee/wye/cross/splitter). */
+export interface BranchSpec {
+  direction: [number, number, number];
+  length: number;
+  /** Rectangular branch dimensions (mm); omit for round branches. */
+  width?: number;
+  height?: number;
+  /** Round branch radius (mm); omit for rectangular branches. */
+  radius?: number;
+  role?: string;
+}
 
 /** Kind-specific geometry parameters (see backend GeometryFactory). */
 export interface ElementParams {
@@ -50,14 +68,21 @@ export interface ElementParams {
   handleRadius?: number;
   bladeThickness?: number;
   rollDeg?: number;
-  fromShape?: "rectangular" | "round";
-  toShape?: "rectangular" | "round";
+  fromShape?: "rectangular" | "round" | "oval" | "flat_oval";
+  toShape?: "rectangular" | "round" | "oval" | "flat_oval";
   fromWidth?: number;
   fromHeight?: number;
   fromRadius?: number;
   toWidth?: number;
   toHeight?: number;
   toRadius?: number;
+  // v2 duct additions
+  shape?: "rectangular" | "round" | "oval" | "flat_oval";
+  majorAxis?: number;
+  minorAxis?: number;
+  /** Multi-branch fittings (tee/wye/cross/splitter) emit their arms here. */
+  branches?: BranchSpec[];
+  branchAngleDeg?: number;
 }
 
 export interface JointPort {

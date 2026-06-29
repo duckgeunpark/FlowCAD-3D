@@ -1,15 +1,21 @@
 import { create } from "zustand";
-import type {
-  DesignMode,
-  Diagnostic,
-  DiagnosticLevel,
-  ElementParams,
-  JointPort,
-  SceneDocument,
-  SceneElement,
+import {
+  getFitting,
+  type DesignMode,
+  type Diagnostic,
+  type DiagnosticLevel,
+  type ElementParams,
+  type JointPort,
+  type SceneDocument,
+  type SceneElement,
 } from "@flowcad/shared";
 import { generateScene } from "@/lib/api";
-import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
+import {
+  rowElementId,
+  rowIndexForElement,
+  sampleRowsFor,
+  type TableRow,
+} from "@/lib/sampleData";
 
 export type ViewMode = "true_scale" | "iso";
 export type LabelMode = "auto" | "all" | "joints" | "none";
@@ -19,7 +25,11 @@ export interface SelectedJointContext {
   jointNo: string;
   role: string;
   parentSeq: string | number;
+  /** Stable id of the element owning the selected joint (element_id or A{seq}). */
+  parentId: string;
   elementId: string;
+  position: [number, number, number];
+  direction: [number, number, number];
   dimensions: Record<string, number>;
 }
 
@@ -106,56 +116,61 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     selectedJointContext: null,
   }),
   selectJoint: (selectedJointId) => {
-    const context = selectedJointId ? selectedJointContextFor(get().scene, selectedJointId) : null;
+    const { scene, mode } = get();
+    const context = selectedJointId ? selectedJointContextFor(scene, selectedJointId, mode) : null;
     set({ selectedJointId, selectedJointContext: context, selectedId: null });
   },
   hover: (hoveredId) => set({ hoveredId }),
   hoverJoint: (hoveredJointId) => set({ hoveredJointId }),
 
   addCatalogFitting: (fittingId, values, opts) => {
-    const { rows, selectedJointContext } = get();
+    const { rows, mode, selectedJointContext } = get();
     const context = opts ? null : selectedJointContext;
 
-    const newSeq = nextSeq(rows);
-    const row: TableRow = {
-      seq: newSeq,
-      system_type: "duct",
-      part_type: fittingId,
-      spec: "",
-      connect_to_seq: opts?.connectToSeq ?? context?.parentSeq ?? "",
-      connect_port: opts?.connectPort ?? context?.role ?? "start",
-      note: context ? "표준피팅" : "표준피팅 시작",
-      ...(context?.dimensions ?? {}),
-      ...values,
-    };
+    const row =
+      mode === "pipe"
+        ? buildAssemblyRow(fittingId, values, rows, context, opts)
+        : buildV2Row(fittingId, values, rows, context);
 
+    // v2 chaining: also point the parent element at the new one so the engine
+    // shares their joint and trims the parent back to the new fitting's face.
+    let nextRows = [...rows, row];
+    if (mode !== "pipe" && context) {
+      nextRows = nextRows.map((r) =>
+        rowElementId(r, mode) === context.parentId
+          ? linkParentToChild(r, context.role, String(row.element_id))
+          : r,
+      );
+    }
+
+    const newId = rowElementId(row, mode);
     set({
-      mode: "duct",
-      rows: [...rows, row],
+      mode,
+      rows: nextRows,
       selectedJointId: null,
       selectedJointContext: null,
       error: null,
     });
     void get()
       .regenerate()
-      .then(() => set({ selectedId: `A${newSeq}` }));
+      .then(() => set({ selectedId: newId }));
   },
 
   rotateFitting: (id, deltaDeg) => {
-    const { scene, rows } = get();
+    const { scene, rows, mode } = get();
     const element = scene?.elements.find((e) => e.id === id);
-    const seq = seqFromElementId(id);
-    if (!element || seq == null) return;
-    const idx = rows.findIndex((r) => String(r.seq) === seq);
+    if (!element) return;
+    const idx = rowIndexForElement(rows, element, mode);
     if (idx < 0) return;
 
     const rectangular = element.params.width != null || element.params.height != null;
-    const current = Number(rows[idx].rotation ?? 0) || 0;
+    const column = mode === "pipe" ? "rotation" : "rotation_deg";
+    const current = Number(rows[idx][column] ?? 0) || 0;
     let next = current + deltaDeg;
     if (rectangular) next = Math.round(next / 90) * 90;
     next = ((next % 360) + 360) % 360;
 
-    const nextRows = rows.map((r, i) => (i === idx ? { ...r, rotation: next } : r));
+    const nextRows = rows.map((r, i) => (i === idx ? { ...r, [column]: next } : r));
     set({ rows: nextRows });
     void get().regenerate();
   },
@@ -202,21 +217,30 @@ export function worstLevel(diags: Diagnostic[]): DiagnosticLevel | null {
   return worst;
 }
 
+// ----------------------------------------------------------------------------
+// Joint context
+// ----------------------------------------------------------------------------
 function selectedJointContextFor(
   scene: SceneDocument | null,
   jointId: string,
+  mode: DesignMode,
 ): SelectedJointContext | null {
   if (!scene) return null;
   const source = findJoint(scene, jointId);
   if (!source || !source.joint.open) return null;
-  const parentSeq = seqOf(source.element);
-  if (parentSeq == null) return null;
+  const parentId = source.element.id;
+  const parentSeq = mode === "pipe"
+    ? parentId.replace(/^A/, "")
+    : source.element.userData.elementId ?? parentId;
   return {
     jointId,
     jointNo: source.joint.no,
     role: source.joint.role,
     parentSeq,
+    parentId,
     elementId: source.element.id,
+    position: source.joint.position,
+    direction: source.joint.direction,
     dimensions: dimensionsForJoint(source.element, source.joint),
   };
 }
@@ -261,13 +285,144 @@ function transitionDimensionsForRole(
   return null;
 }
 
-function seqFromElementId(id: string): string | null {
-  const match = /^A(.+)$/.exec(id);
-  return match ? match[1] : null;
+// ----------------------------------------------------------------------------
+// Catalog-fitting row builders
+// ----------------------------------------------------------------------------
+function buildAssemblyRow(
+  fittingId: string,
+  values: Record<string, number | string>,
+  rows: TableRow[],
+  context: SelectedJointContext | null,
+  opts?: { connectToSeq?: string | number; connectPort?: string },
+): TableRow {
+  const newSeq = nextSeq(rows);
+  return {
+    seq: newSeq,
+    system_type: "duct",
+    part_type: fittingId,
+    spec: "",
+    connect_to_seq: opts?.connectToSeq ?? context?.parentSeq ?? "",
+    connect_port: opts?.connectPort ?? context?.role ?? "start",
+    note: context ? "표준피팅" : "표준피팅 시작",
+    ...(context?.dimensions ?? {}),
+    ...values,
+  };
 }
 
-function seqOf(element: SceneElement): string | number | null {
-  return seqFromElementId(element.id) ?? element.userData.seq ?? null;
+const _CATEGORY_FITTING_TYPE: Record<string, string> = {
+  straight: "NONE",
+  elbow: "ELBOW",
+  tee: "TEE",
+  wye: "WYE",
+  lateral: "WYE",
+  transition: "TRANSITION",
+  offset: "OFFSET",
+  cap: "CAP",
+  accessory: "CAP",
+};
+
+const _DIR_TO_AXIS: Record<string, string> = {
+  e: "XP", w: "XN", n: "YP", s: "YN", up: "ZP", down: "ZN",
+};
+
+function buildV2Row(
+  fittingId: string,
+  values: Record<string, number | string>,
+  rows: TableRow[],
+  context: SelectedJointContext | null,
+): TableRow {
+  const fitting = getFitting(fittingId);
+  const category = fitting?.category ?? "straight";
+  const shape = (fitting?.inlet ?? "rect") === "round" ? "ROUND" : "RECT";
+  const fittingType = _CATEGORY_FITTING_TYPE[category] ?? "NONE";
+  const elementType = category === "straight" ? "STRAIGHT" : "FITTING";
+
+  const newId = nextElementId(rows);
+  const origin = context?.position ?? [0, 0, 3000];
+  const dir = context?.direction ?? [1, 0, 0];
+  const inAxis = axisToken(dir);
+  const bendTo = String(values.bend_to ?? "");
+  const outAxis = _DIR_TO_AXIS[bendTo] ?? perpAxis(inAxis);
+
+  const orientation =
+    category === "elbow"
+      ? `${inAxis}_${outAxis}`
+      : fittingType === "TEE" || fittingType === "WYE"
+        ? `${inAxis}_${inAxis}_BRANCH_${perpAxis(inAxis)}`
+        : `${inAxis}_${inAxis}`;
+
+  const length = Number(values.L ?? 1000) || 1000;
+  const row: TableRow = {
+    row_type: "DATA",
+    seq: nextSeq(rows) * 10,
+    element_id: newId,
+    from_element_id: context?.elementId ? String(context.elementId) : "",
+    element_type: elementType,
+    family_code: fittingId.toUpperCase(),
+    shape_code: shape,
+    material_code: "GI",
+    origin_x: origin[0],
+    origin_y: origin[1],
+    origin_z: origin[2],
+    dir_x: dir[0],
+    dir_y: dir[1],
+    dir_z: dir[2],
+    orientation_code: orientation,
+    fitting_type: fittingType,
+    part_name_en: fitting?.nameEn ?? fittingId,
+    part_name_ko: fitting?.nameKo ?? "",
+    note: context ? "표준피팅" : "표준피팅 시작",
+  };
+  if (elementType === "STRAIGHT") {
+    row.end_x = origin[0] + dir[0] * length;
+    row.end_y = origin[1] + dir[1] * length;
+    row.end_z = origin[2] + dir[2] * length;
+    row.centerline_length = length;
+  }
+  // Map catalog dims (W/H/D/branch*) to v2 columns.
+  const dims = { ...(context?.dimensions ?? {}), ...values };
+  if (dims.W != null) row.width = dims.W;
+  if (dims.H != null) row.height = dims.H;
+  if (dims.D != null) row.diameter = dims.D;
+  if (dims.toD != null) row.outlet_diameter = dims.toD;
+  if (dims.branchW != null) row.branch_width = dims.branchW;
+  if (dims.branchH != null) row.branch_height = dims.branchH;
+  if (dims.branchD != null) row.branch_diameter = dims.branchD;
+  if (dims.angle != null) row.angle_deg = dims.angle;
+  return row;
+}
+
+function linkParentToChild(parent: TableRow, role: string, childId: string): TableRow {
+  const key = role === "branch" || role.startsWith("branch")
+    ? "branch_to_element_id"
+    : "to_element_id";
+  return { ...parent, [key]: childId };
+}
+
+function axisToken(dir: [number, number, number]): string {
+  const [x, y, z] = dir;
+  const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
+  if (ax >= ay && ax >= az) return x >= 0 ? "XP" : "XN";
+  if (ay >= az) return y >= 0 ? "YP" : "YN";
+  return z >= 0 ? "ZP" : "ZN";
+}
+
+function perpAxis(axis: string): string {
+  // A sensible in-plan perpendicular for a branch/elbow default.
+  if (axis === "XP") return "YP";
+  if (axis === "XN") return "YN";
+  if (axis === "YP") return "XN";
+  if (axis === "YN") return "XP";
+  return "XP"; // vertical run -> branch east
+}
+
+function nextElementId(rows: TableRow[]): string {
+  let max = 0;
+  for (const r of rows) {
+    const m = /^E(\d+)$/.exec(String(r.element_id ?? ""));
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `E${String(max + 1).padStart(4, "0")}`;
 }
 
 function nextSeq(rows: TableRow[]): number {

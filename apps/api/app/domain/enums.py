@@ -26,11 +26,21 @@ class ComponentKind(str, Enum):
     TRANSITION = "transition"
     DAMPER = "damper"
     ERROR_MARKER = "error_marker"
+    # v2 duct schema additions (duct_3d_sheet_v2). WYE/CROSS/CAP/TAP and the
+    # multi-branch SPLITTER (e.g. bullhead tee / double-elbow splitter) are first
+    # class so the frontend GeometryFactory can render each distinctly.
+    WYE = "wye"
+    CROSS = "cross"
+    CAP = "cap"
+    TAP = "tap"
+    SPLITTER = "splitter"
 
 
 class DuctShape(str, Enum):
     RECTANGULAR = "rectangular"
     ROUND = "round"
+    OVAL = "oval"
+    FLAT_OVAL = "flat_oval"
 
 
 class ExportFormat(str, Enum):

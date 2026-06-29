@@ -100,6 +100,11 @@ _DESCRIPTIONS: dict[ComponentKind, str] = {
     ComponentKind.VALVE: "Valve",
     ComponentKind.TRANSITION: "Transition",
     ComponentKind.DAMPER: "Damper",
+    ComponentKind.WYE: "Wye",
+    ComponentKind.CROSS: "Cross",
+    ComponentKind.CAP: "End Cap",
+    ComponentKind.TAP: "Tap / Takeoff",
+    ComponentKind.SPLITTER: "Splitter",
     ComponentKind.ERROR_MARKER: "Design Rule Error Marker",
 }
 
@@ -120,6 +125,12 @@ _PART_TYPE_DESC: dict[str, str] = {
 
 
 def _describe(element: SceneElement) -> str:
+    # The v2 duct schema carries a real part name (part_name_ko/en) per row; use
+    # it verbatim so the BOM reads the standard catalogue name. Otherwise fall
+    # back to the part_type subtype name, then the generic kind description.
+    explicit = element.user_data.get("description", "")
+    if explicit:
+        return explicit
     part_type = element.user_data.get("partType", "")
     return _PART_TYPE_DESC.get(part_type) or _DESCRIPTIONS.get(
         element.kind, element.kind.value
