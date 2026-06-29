@@ -23,9 +23,9 @@ from dataclasses import dataclass, field
 from ..domain.components import CrossSection, Metadata, Node, Run
 from ..domain.enums import ComponentKind, DesignMode, DuctShape
 from ..domain.geometry import Vec3
-from ..domain.scene import SceneDocument
+from ..domain.scene import Diagnostic, JointPort, SceneDocument
 from ..specs.repository import SpecNotFoundError, SpecRepository
-from .geometry_factory import GeometryFactory
+from .geometry_factory import GeometryFactory, elbow_bend_radius
 from .scene_builder import SceneBuilder
 
 # Lateral spacing between disconnected runs so independent chains do not overlap.
@@ -115,6 +115,39 @@ def _turn_axis_for(h_in: Vec3) -> Vec3:
     return Vec3(0.0, 0.0, 1.0)
 
 
+def _main_half(section: CrossSection, side: Vec3) -> float:
+    """Half the main duct's extent toward ``side`` (its surface offset)."""
+    if section.shape is DuctShape.ROUND:
+        return section.outer_diameter / 2.0
+    return section.height / 2.0 if abs(side.z) > 0.5 else section.width / 2.0
+
+
+def _tap_entry(parent: ResolvedPart, connect_port: str, row: dict) -> tuple[Vec3, Vec3]:
+    """Entry point + heading for a branch that taps the side of the parent
+    straight (HVAC duct branching). ``connect_port`` may carry a position
+    fraction along the run, e.g. ``tap@0.3``; ``angle`` is the branch angle off
+    the main (90° = straight tap, 45° = lateral/wye); ``rotation`` picks the side.
+    """
+    frac = 0.5
+    if "@" in connect_port:
+        try:
+            frac = max(0.0, min(1.0, float(connect_port.split("@", 1)[1])))
+        except ValueError:
+            frac = 0.5
+    span = parent.end_pos - parent.start_pos
+    main_dir = _norm(span)
+    tap_center = parent.start_pos + span.scaled(frac)
+    roll = _num(row.get("rotation")) or 0.0
+    if parent.in_section.shape is DuctShape.RECTANGULAR:
+        roll = round(roll / 90.0) * 90.0
+    side = _norm(_rotate_axis(_perp_in_plan(main_dir), main_dir, roll))
+    angle = _num(row.get("angle"))
+    rad = math.radians(angle if angle is not None else 90.0)
+    branch_dir = _norm(side.scaled(math.sin(rad)) + main_dir.scaled(math.cos(rad)))
+    entry = tap_center + side.scaled(_main_half(parent.in_section, side))
+    return entry, branch_dir
+
+
 # --------------------------------------------------------------------------- #
 # Resolved model
 # --------------------------------------------------------------------------- #
@@ -134,6 +167,11 @@ class ResolvedPart:
     ports: dict[str, tuple[Vec3, Vec3]] = field(default_factory=dict)
     start_neighbor: ComponentKind | None = None
     end_neighbor: ComponentKind | None = None
+    # Port on ``start_neighbor`` that this part hangs off (e.g. "branch"/"out").
+    start_neighbor_port: str | None = None
+    # Branch taps on this straight's side: (surface point, branch direction). The
+    # compiler adds a matching joint at each so the branch reads as connected.
+    taps: list[tuple[Vec3, list[float]]] = field(default_factory=list)
 
 
 def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
@@ -152,6 +190,40 @@ def _classify(part_type: str) -> tuple[str, ComponentKind | None]:
         return "cap", None
     # default: a straight segment (also covers 'pipe'/'duct'/'straight')
     return "segment", None
+
+
+def _diag(
+    level: str,
+    code: str,
+    seq: object,
+    message: str,
+    *,
+    suggestion: str = "",
+    joint_no: str = "",
+    position: Vec3 | None = None,
+) -> dict:
+    """Build a diagnostic dict. ``desc``/``joint_no``/``position`` keys keep it
+    compatible with :meth:`GeometryFactory.build_error_marker` for 3D markers."""
+    text = f"[seq {seq}] {message}" if seq not in (None, "") else message
+    return {
+        "level": level,
+        "code": code,
+        "seq": str(seq),
+        "message": text,
+        "suggestion": suggestion,
+        "joint_no": joint_no,
+        "position": position,
+        "desc": text,
+    }
+
+
+def _row_has_size(row: dict, system_type: str) -> bool:
+    """True if the row supplies its own cross-section (so nothing is inherited)."""
+    if system_type == "pipe":
+        keys = ("nominal", "size_a", "diameter")
+    else:
+        keys = ("size_a", "size_b", "width", "height", "diameter")
+    return any(str(row.get(k, "")).strip() for k in keys)
 
 
 def _num(value: object) -> float | None:
@@ -290,6 +362,12 @@ class AssemblyResolver:
             value = row.get(key)
             if value not in (None, ""):
                 extra[key] = str(value)
+        # Keep the original part_type so the BOM/detail can name the specific
+        # subtype (reducer vs eccentric reducer vs transition) instead of the
+        # generic ComponentKind.
+        part_type = str(row.get("part_type", row.get("item_type", ""))).strip().lower()
+        if part_type:
+            extra["partType"] = part_type
         return Metadata(
             drawing_no=str(row.get("drawing_no", "")),
             fitting_no=str(row.get("fitting_no", "")),
@@ -335,8 +413,16 @@ class AssemblyResolver:
             parent = parts.get(connect_to) if connect_to else None
 
             # entry position + heading
+            is_tap = (
+                parent is not None
+                and connect_port.startswith("tap")
+                and parent.role == "segment"
+            )
             if parent is not None:
-                entry_pos, h_in = _parent_port(parent, connect_port)
+                if is_tap:
+                    entry_pos, h_in = _tap_entry(parent, connect_port, row)
+                else:
+                    entry_pos, h_in = _parent_port(parent, connect_port)
             else:
                 entry_pos = Vec3(0.0, root_index * _RUN_STAGGER, 0.0)
                 h_in = Vec3(1.0, 0.0, 0.0)
@@ -348,6 +434,11 @@ class AssemblyResolver:
 
             prev_section = parent.out_section if parent is not None else None
             section, spec_label = self._resolve_section(row, system_type, prev_section, seq)
+            if parent is not None and not _row_has_size(row, system_type):
+                errors.append(_diag(
+                    "info", "SPEC_INHERITED", seq,
+                    f"규격 미입력 → 연결된 seq {connect_to}에서 {spec_label} 상속",
+                ))
             metadata = self._metadata(row, spec_label)
             length = _num(row.get("length"))
             if length is None:
@@ -360,6 +451,11 @@ class AssemblyResolver:
             parts[seq] = resolved
             order.append(resolved)
 
+            if is_tap and parent is not None:
+                # Record a joint on the main straight at the tap surface point so
+                # the branch's start joint pairs with it (reads as connected).
+                parent.taps.append((entry_pos, list(h_in.as_tuple())))
+
             if parent is not None:
                 children.setdefault(connect_to, []).append((seq, connect_port))
                 marker = self._check_rule(parent, resolved, connect_port, entry_pos)
@@ -368,11 +464,13 @@ class AssemblyResolver:
             elif connect_to:
                 # A named connection target that does not exist: surface it instead
                 # of silently re-rooting this part 4 m away.
-                errors.append({
-                    "joint_no": resolved.metadata.joint_no or seq,
-                    "position": entry_pos,
-                    "desc": f"[seq {seq}] 연결 대상 seq '{connect_to}' 를 찾을 수 없음",
-                })
+                errors.append(_diag(
+                    "error", "MISSING_TARGET", seq,
+                    f"연결 대상 seq '{connect_to}' 를 찾을 수 없음",
+                    suggestion="connect_to_seq를 존재하는 자재 순번으로 수정하세요.",
+                    joint_no=resolved.metadata.joint_no or str(seq),
+                    position=entry_pos,
+                ))
 
         _assign_neighbors(parts, children)
         return order, errors
@@ -388,13 +486,27 @@ class AssemblyResolver:
                 out_dir = override
             else:
                 turn = angle if angle is not None else 90.0
-                out_dir = _norm(_rotate_axis(h_in, _turn_axis_for(h_in), turn))
+                # ``rotation`` rolls the bend plane about the incoming heading so
+                # the elbow (and everything downstream of its ``out`` port) can be
+                # swung out of the default plan view, e.g. to turn up instead of
+                # sideways. roll=0 reproduces the original behaviour.
+                axis = _turn_axis_for(h_in)
+                roll = _num(row.get("rotation"))
+                if roll:
+                    axis = _norm(_rotate_axis(axis, h_in, roll))
+                out_dir = _norm(_rotate_axis(h_in, axis, turn))
+            # Piece model: the incoming straight ends at its full length (entry_pos,
+            # the in-face); the elbow then occupies its own footprint — corner sits
+            # one leg length past the face, and the out-face one leg past the corner.
+            leg = elbow_bend_radius(section)
+            corner = entry_pos + h_in.scaled(leg)
+            out_face = corner + out_dir.scaled(leg)
             ports = {
                 "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
-                "out": (entry_pos, out_dir), "end": (entry_pos, out_dir),
+                "out": (out_face, out_dir), "end": (out_face, out_dir),
             }
             return ResolvedPart(seq, "fitting", kind, section, section,
-                                entry_pos, entry_pos, entry_pos, h_in, out_dir,
+                                entry_pos, out_face, corner, h_in, out_dir,
                                 metadata, ports)
 
         if role == "fitting" and kind is ComponentKind.TEE:
@@ -404,14 +516,23 @@ class AssemblyResolver:
             # so the branch port and any child placed on it point the same way.
             if section.shape is DuctShape.RECTANGULAR:
                 roll = round(roll / 90.0) * 90.0
-            branch = _rotate_axis(_perp_in_plan(h_in), h_in, roll)
+            branch = _norm(_rotate_axis(_perp_in_plan(h_in), h_in, roll))
+            # Piece model: the in-face is at entry_pos; the tee body occupies its
+            # own run, so the center is half a run past the face, the out-face a
+            # full half-run past the center, and the branch-face one branch arm out.
+            radius = _nominal_radius(section)
+            run_half = max(radius * 5.0, 400.0) / 2.0
+            branch_len = max(radius * 4.0, 300.0)
+            center = entry_pos + h_in.scaled(run_half)
+            out_face = center + h_in.scaled(run_half)
+            branch_face = center + branch.scaled(branch_len)
             ports = {
                 "in": (entry_pos, h_in.scaled(-1)), "start": (entry_pos, h_in.scaled(-1)),
-                "out": (entry_pos, h_in), "end": (entry_pos, h_in),
-                "branch": (entry_pos, _norm(branch)),
+                "out": (out_face, h_in), "end": (out_face, h_in),
+                "branch": (branch_face, branch),
             }
             return ResolvedPart(seq, "fitting", kind, section, section,
-                                entry_pos, entry_pos, entry_pos, h_in, h_in,
+                                entry_pos, out_face, center, h_in, h_in,
                                 metadata, ports)
 
         if role == "fitting" and kind in (ComponentKind.VALVE, ComponentKind.DAMPER):
@@ -464,26 +585,46 @@ class AssemblyResolver:
         # transitions/reducers legitimately bridge mismatched sections
         if ComponentKind.TRANSITION in (parent.kind, child.kind):
             return None
-        # tee branch may carry a different size in MVP
-        if port in ("branch",):
+        # tee branch / side tap may carry a different size in MVP
+        if port.startswith("tap") or port in ("branch",):
             return None
         a = parent.out_section
         b = child.in_section
         desc = ""
+        code = ""
+        suggestion = ""
         if a.shape is not b.shape:
+            code = "SHAPE_MISMATCH"
             desc = f"형상 불일치: {a.shape.value} ↔ {b.shape.value} (변환관 필요)"
+            suggestion = (f"seq {parent.seq}와 seq {child.seq} 사이에 "
+                          "변환관(transition)을 삽입하세요.")
         elif a.shape is DuctShape.ROUND:
             if abs(a.outer_diameter - b.outer_diameter) > 1e-3:
+                code = "DIAMETER_MISMATCH"
                 desc = (f"직경 불일치: Ø{a.outer_diameter:g} ↔ Ø{b.outer_diameter:g} "
                         "(ROUND_SAME_DIA)")
+                suggestion = (f"seq {child.seq}의 직경을 Ø{a.outer_diameter:g}로 맞추거나 "
+                              "레듀서(reducer)를 삽입하세요.")
         else:
             if abs(a.width - b.width) > 1e-3 or abs(a.height - b.height) > 1e-3:
+                code = "SECTION_MISMATCH"
                 desc = (f"단면 불일치: {a.width:g}x{a.height:g} ↔ "
                         f"{b.width:g}x{b.height:g} (RECT_SAME_WH)")
+                suggestion = (f"seq {child.seq}의 치수를 {a.width:g}x{a.height:g}로 맞추거나 "
+                              "변환관(transition)을 삽입하세요.")
         if not desc:
             return None
         jno = child.metadata.joint_no or parent.metadata.joint_no or f"{parent.seq}-{child.seq}"
-        return {"joint_no": jno, "position": pos, "desc": f"[연결 {parent.seq}→{child.seq}] {desc}"}
+        return {
+            "level": "error",
+            "code": code,
+            "seq": str(child.seq),
+            "message": f"[연결 {parent.seq}→{child.seq}] {desc}",
+            "suggestion": suggestion,
+            "joint_no": jno,
+            "position": pos,
+            "desc": f"[연결 {parent.seq}→{child.seq}] {desc}",
+        }
 
 
 def _parent_port(parent: ResolvedPart, port: str) -> tuple[Vec3, Vec3]:
@@ -516,6 +657,7 @@ def _assign_neighbors(
             if parent.kind in _CORNER_FITTINGS:
                 if child.start_neighbor is None:
                     child.start_neighbor = parent.kind
+                    child.start_neighbor_port = port
             if child.kind in _CORNER_FITTINGS and port in ("end", "out"):
                 if parent.end_neighbor is None and parent.role == "segment":
                     parent.end_neighbor = child.kind
@@ -529,7 +671,7 @@ class AssemblyCompiler:
         self._factory = factory or GeometryFactory()
 
     def compile(
-        self, parts: list[ResolvedPart], mode: DesignMode, errors: list[dict]
+        self, parts: list[ResolvedPart], mode: DesignMode, diagnostics: list[dict]
     ) -> SceneDocument:
         builder = SceneBuilder()
         for rp in parts:
@@ -541,17 +683,50 @@ class AssemblyCompiler:
             elif rp.role == "fitting":
                 builder.add(self._fitting(rp, mode, eid))
             # 'cap' renders no geometry in the MVP (it only closes a port)
-        for i, marker in enumerate(errors):
-            builder.add(self._factory.build_error_marker(marker, f"AERR-{i:03d}"))
+        # Only blocking (error-level) diagnostics with a 3D anchor get a marker;
+        # info/warning rows surface in the table/diagnostics panel instead.
+        marker_idx = 0
+        for d in diagnostics:
+            if d.get("level") == "error" and d.get("position") is not None:
+                builder.add(self._factory.build_error_marker(d, f"AERR-{marker_idx:03d}"))
+                marker_idx += 1
+        builder.add_diagnostics([
+            Diagnostic(
+                level=d["level"],
+                code=d["code"],
+                seq=d["seq"],
+                message=d["message"],
+                suggestion=d.get("suggestion", ""),
+                position=(list(d["position"].as_tuple())
+                          if d.get("position") is not None else None),
+            )
+            for d in diagnostics
+        ])
         return builder.build()
 
     def _segment(self, rp: ResolvedPart, mode: DesignMode, eid: str):
         run = Run(mode=mode, section=rp.in_section, nodes=[])
         a = Node(position=rp.start_pos, metadata=rp.metadata,
-                 fitting=rp.start_neighbor, section=rp.in_section)
+                 fitting=rp.start_neighbor, section=rp.in_section,
+                 fitting_port=rp.start_neighbor_port)
         b = Node(position=rp.end_pos, metadata=rp.metadata,
                  fitting=rp.end_neighbor, section=rp.in_section)
-        return self._factory.build_segment(run, a, b, eid)
+        # Piece model: endpoints are already real face-to-face positions (fittings
+        # occupy their own footprint), so keep each straight at its authored length
+        # instead of trimming it back into the neighbouring fitting.
+        elem = self._factory.build_segment(run, a, b, eid, trim=False)
+        # Add a joint at each side-tap so a branch hung off this straight pairs
+        # with it. The number matches the branch start's auto base (J-x-y-z).
+        for i, (pos, direction) in enumerate(rp.taps):
+            elem.joints.append(JointPort(
+                id=f"{eid}-tap{i}",
+                no=f"J-{round(pos.x)}-{round(pos.y)}-{round(pos.z)}",
+                position=list(pos.as_tuple()),
+                direction=direction,
+                role="tap",
+                open=False,
+            ))
+        return elem
 
     def _transition(self, rp: ResolvedPart, mode: DesignMode, eid: str):
         run = Run(mode=mode, section=rp.in_section, nodes=[])

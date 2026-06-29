@@ -4,10 +4,13 @@ import { useMemo } from "react";
 import {
   BufferGeometry,
   CatmullRomCurve3,
+  DoubleSide,
   Float32BufferAttribute,
+  Matrix4,
   Quaternion,
   Vector3,
 } from "three";
+import type { Side } from "three";
 import type { SceneElement } from "@flowcad/shared";
 import { toThree } from "./coords";
 
@@ -24,6 +27,30 @@ const UP = new Vector3(0, 1, 0);
 const X_AXIS = new Vector3(1, 0, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
 
+/**
+ * Orientation for a rectangular section whose local axes are X=width, Y=length,
+ * Z=height. Unlike ``setFromUnitVectors`` (which leaves the roll about the run
+ * axis unpinned, so width/height appear swapped depending on heading), this pins
+ * **height to vertical (world up) and width to horizontal**, so a W×H duct reads
+ * the same — and stays continuous through elbows — regardless of run direction.
+ */
+function rectQuaternion(dir: Vector3): Quaternion {
+  const length = dir.clone().normalize();
+  let height: Vector3;
+  if (Math.abs(length.dot(UP)) > 0.99) {
+    // Vertical run: height can't be world-up; fall back to a horizontal axis.
+    height = new Vector3(0, 0, 1);
+  } else {
+    height = UP.clone().sub(length.clone().multiplyScalar(UP.dot(length))).normalize();
+  }
+  const width = new Vector3().crossVectors(length, height).normalize();
+  // Re-orthogonalize height so (width, length, height) is a right-handed basis.
+  height = new Vector3().crossVectors(width, length).normalize();
+  return new Quaternion().setFromRotationMatrix(
+    new Matrix4().makeBasis(width, length, height),
+  );
+}
+
 /** Position + orientation for a tube/box spanning start -> end. */
 function useSpan(start: [number, number, number], end: [number, number, number]) {
   return useMemo(() => {
@@ -32,11 +59,11 @@ function useSpan(start: [number, number, number], end: [number, number, number])
     const dir = new Vector3().subVectors(b, a);
     const length = dir.length();
     const mid = new Vector3().addVectors(a, b).multiplyScalar(0.5);
-    const quat = new Quaternion().setFromUnitVectors(
-      UP,
-      dir.clone().normalize(),
-    );
-    return { length, mid, quat };
+    const unit = dir.clone().normalize();
+    const quat = new Quaternion().setFromUnitVectors(UP, unit);
+    // Rectangular sections need a roll-pinned frame (height up, width level).
+    const rectQuat = rectQuaternion(dir);
+    return { length, mid, quat, rectQuat };
   }, [start, end]);
 }
 
@@ -127,17 +154,28 @@ function interactionHandlers(p: ElementVisualProps) {
   };
 }
 
-function StandardMaterial(p: ElementVisualProps, metalness = 0.4, roughness = 0.5) {
+function StandardMaterial(
+  p: ElementVisualProps,
+  metalness = 0.4,
+  roughness = 0.5,
+  side?: Side,
+) {
   const mat = useMaterialColor(p);
+  // Only enable alpha blending when actually translucent. Leaving `transparent`
+  // on for fully-opaque meshes makes three.js skip/disorder depth writes, which
+  // causes faces to flicker and drop out while orbiting.
+  const isTransparent = p.opacity < 1;
   return (
     <meshStandardMaterial
       color={mat.color}
       emissive={mat.emissive}
       emissiveIntensity={mat.emissiveIntensity}
-      transparent
+      transparent={isTransparent}
       opacity={p.opacity}
+      depthWrite={!isTransparent}
       metalness={metalness}
       roughness={roughness}
+      side={side}
     />
   );
 }
@@ -165,7 +203,7 @@ function RectDuctSegment(p: ElementVisualProps) {
   return (
     <mesh
       position={span.mid}
-      quaternion={span.quat}
+      quaternion={span.rectQuat}
       {...interactionHandlers(p)}
       userData={p.element.userData}
     >
@@ -289,7 +327,12 @@ function DamperFitting(p: ElementVisualProps) {
   const radius = params.radius ?? 100;
   const width = params.width ?? radius * 2;
   const height = params.height ?? radius * 2;
-  const quat = useMemo(() => new Quaternion().setFromUnitVectors(UP, dir), [dir]);
+  // Rectangular dampers need the roll-pinned frame (height up) so W×H reads
+  // consistently; round bodies are symmetric so the simple heading is fine.
+  const quat = useMemo(
+    () => (isRound ? new Quaternion().setFromUnitVectors(UP, dir) : rectQuaternion(dir)),
+    [dir, isRound],
+  );
   const rollRad = ((params.rollDeg ?? 0) * Math.PI) / 180;
   return (
     <group position={pos} quaternion={quat} {...interactionHandlers(p)} userData={p.element.userData}>
@@ -319,22 +362,12 @@ function DamperFitting(p: ElementVisualProps) {
 }
 
 function DuctElbow(p: ElementVisualProps) {
-  const { params } = p.element;
-  const pos = useMemo(() => toThree(params.position!), [params.position]);
-  const inDir = useMemo(() => toThreeDirection(params.inDirection ?? [-1, 0, 0]), [params.inDirection]);
-  const outDir = useMemo(() => toThreeDirection(params.outDirection ?? [1, 0, 0]), [params.outDirection]);
-  const width = params.width ?? 300;
-  const height = params.height ?? 300;
-  const leg = Math.max(params.bendRadius ?? Math.max(width, height), Math.max(width, height));
+  const pos = useMemo(() => toThree(p.element.params.position!), [p.element.params.position]);
+  const geometry = useMemo(() => buildDuctElbowGeometry(p.element), [p.element]);
   return (
-    <group position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
-      <LocalBox p={p} start={inDir.clone().multiplyScalar(-leg)} end={new Vector3()} width={width} height={height} />
-      <LocalBox p={p} start={new Vector3()} end={outDir.clone().multiplyScalar(leg)} width={width} height={height} />
-      <mesh>
-        <boxGeometry args={[width, Math.max(width, height) * 0.9, height]} />
-        {StandardMaterial(p, 0.22, 0.58)}
-      </mesh>
-    </group>
+    <mesh position={pos} geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
+      {StandardMaterial(p, 0.22, 0.58, DoubleSide)}
+    </mesh>
   );
 }
 
@@ -364,21 +397,109 @@ function LocalCylinder({ p, start, end, radius }: { p: ElementVisualProps; start
   );
 }
 
-function LocalBox({ p, start, end, width, height }: { p: ElementVisualProps; start: Vector3; end: Vector3; width: number; height: number }) {
-  const { length, mid, quat } = useMemo(() => {
-    const dir = new Vector3().subVectors(end, start);
-    return {
-      length: Math.max(dir.length(), 1),
-      mid: new Vector3().addVectors(start, end).multiplyScalar(0.5),
-      quat: new Quaternion().setFromUnitVectors(UP, dir.normalize()),
-    };
-  }, [start, end]);
-  return (
-    <mesh position={mid} quaternion={quat}>
-      <boxGeometry args={[width, length, height]} />
-      {StandardMaterial(p, 0.22, 0.58)}
-    </mesh>
-  );
+/**
+ * Sweep a rectangular cross-section (width x height) along a list of rings,
+ * each ring carrying its own center + in-plane / out-of-plane axes. Produces a
+ * single watertight solid — no overlapping coplanar faces, so it does not
+ * z-fight or drop faces while orbiting.
+ */
+function buildSweptRect(
+  rings: { center: Vector3; inPlane: Vector3; outOfPlane: Vector3 }[],
+  halfW: number,
+  halfH: number,
+): BufferGeometry {
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  for (const r of rings) {
+    const corners = [
+      r.center.clone().addScaledVector(r.inPlane, halfW).addScaledVector(r.outOfPlane, halfH),
+      r.center.clone().addScaledVector(r.inPlane, -halfW).addScaledVector(r.outOfPlane, halfH),
+      r.center.clone().addScaledVector(r.inPlane, -halfW).addScaledVector(r.outOfPlane, -halfH),
+      r.center.clone().addScaledVector(r.inPlane, halfW).addScaledVector(r.outOfPlane, -halfH),
+    ];
+    for (const c of corners) vertices.push(c.x, c.y, c.z);
+  }
+  const n = rings.length;
+  for (let i = 0; i < n - 1; i++) {
+    const a = i * 4;
+    const b = (i + 1) * 4;
+    for (let k = 0; k < 4; k++) {
+      const kk = (k + 1) % 4;
+      indices.push(a + k, b + k, a + kk);
+      indices.push(a + kk, b + k, b + kk);
+    }
+  }
+  // End caps.
+  indices.push(0, 1, 2, 0, 2, 3);
+  const last = (n - 1) * 4;
+  indices.push(last, last + 2, last + 1, last, last + 3, last + 2);
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * A true radius (swept) rectangular duct elbow — the rectangular section is
+ * swept along a circular arc tangent to both legs, matching the radius elbow
+ * drawn in the standard PDF rather than mitred boxes.
+ */
+function buildDuctElbowGeometry(element: SceneElement): BufferGeometry {
+  const params = element.params;
+  // inDirection points INTO the elbow (toward the corner), matching the pipe
+  // elbow convention, so the incoming straight sits on the -inDirection side.
+  // Negate it to get the outward direction of the incoming leg.
+  const u = toThreeDirection(params.inDirection ?? [-1, 0, 0]).negate(); // outward along incoming leg
+  const v = toThreeDirection(params.outDirection ?? [1, 0, 0]); // outward along outgoing leg
+  const width = params.width ?? 300;
+  const height = params.height ?? 300;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  // Tangent length = distance from the theoretical corner to where the backend
+  // trims the adjoining straights, so the elbow meets them exactly.
+  const tangent = params.bendRadius ?? Math.max(width, height);
+
+  const clamp = (x: number) => Math.max(-1, Math.min(1, x));
+  const phi = Math.acos(clamp(u.dot(v))); // angle between the outward legs
+  const half = phi / 2;
+  const bendCheck = new Vector3().crossVectors(u, v);
+
+  // Degenerate (collinear legs): fall back to a straight box through the corner.
+  if (bendCheck.length() < 1e-6 || Math.sin(half) < 1e-3) {
+    const a = u.clone().multiplyScalar(tangent);
+    const b = v.clone().multiplyScalar(tangent);
+    const dir = new Vector3().subVectors(b, a).normalize();
+    const inPlane = perpendicularTo(dir);
+    const outOfPlane = new Vector3().crossVectors(dir, inPlane).normalize();
+    return buildSweptRect(
+      [{ center: a, inPlane, outOfPlane }, { center: b, inPlane, outOfPlane }],
+      halfW,
+      halfH,
+    );
+  }
+
+  // Centerline bend radius from the tangent length and turn angle.
+  const radius = tangent * Math.tan(half);
+  const bisector = u.clone().add(v).normalize();
+  const center = bisector.clone().multiplyScalar(radius / Math.sin(half));
+  const r1 = u.clone().multiplyScalar(tangent).sub(center);
+  const r2 = v.clone().multiplyScalar(tangent).sub(center);
+  const axis = new Vector3().crossVectors(r1, r2).normalize(); // out-of-plane bend normal
+  const sweep = Math.acos(clamp(r1.clone().normalize().dot(r2.clone().normalize())));
+
+  const segments = 20;
+  const rings: { center: Vector3; inPlane: Vector3; outOfPlane: Vector3 }[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const radial = r1.clone().applyAxisAngle(axis, (sweep * i) / segments);
+    rings.push({
+      center: center.clone().add(radial),
+      inPlane: radial.clone().normalize(),
+      outOfPlane: axis,
+    });
+  }
+  return buildSweptRect(rings, halfW, halfH);
 }
 
 function buildTransitionGeometry(element: SceneElement): BufferGeometry {

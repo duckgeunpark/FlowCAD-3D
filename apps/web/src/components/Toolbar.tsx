@@ -7,9 +7,16 @@ import type { LabelMode, ViewMode } from "@/store/useViewerStore";
 interface ToolbarProps {
   onGenerate: () => void;
   onLoadSample: () => void;
+  onSaveProject: () => void;
+  onOpenProject: () => void;
 }
 
-export function Toolbar({ onGenerate, onLoadSample }: ToolbarProps) {
+export function Toolbar({
+  onGenerate,
+  onLoadSample,
+  onSaveProject,
+  onOpenProject,
+}: ToolbarProps) {
   const {
     mode,
     setMode,
@@ -64,6 +71,20 @@ export function Toolbar({ onGenerate, onLoadSample }: ToolbarProps) {
 
       <div className="flex-1" />
 
+      <button
+        onClick={onOpenProject}
+        title="저장한 프로젝트(.json) 열기"
+        className="px-3 py-1.5 rounded bg-panelLight hover:bg-[#222b37] text-sm"
+      >
+        열기
+      </button>
+      <button
+        onClick={onSaveProject}
+        title="현재 입력을 프로젝트(.json)로 저장"
+        className="px-3 py-1.5 rounded bg-panelLight hover:bg-[#222b37] text-sm"
+      >
+        저장
+      </button>
       <button
         onClick={onLoadSample}
         className="px-3 py-1.5 rounded bg-panelLight hover:bg-[#222b37] text-sm"

@@ -90,12 +90,29 @@ export interface Vec3DTO {
   z: number;
 }
 
+export type DiagnosticLevel = "error" | "warning" | "info";
+
+/**
+ * A structured validation message tied to an input row (`seq`). Lets the table
+ * highlight the offending row and the UI list the reason + recommended fix —
+ * distinct from the 3D `error_marker` element which only the viewer renders.
+ */
+export interface Diagnostic {
+  level: DiagnosticLevel;
+  code: string;
+  seq: string;
+  message: string;
+  suggestion: string;
+  position: [number, number, number] | null;
+}
+
 export interface SceneDocument {
   units: string;
   boundsMin: Vec3DTO;
   boundsMax: Vec3DTO;
   elements: SceneElement[];
   bom: BomRow[];
+  diagnostics: Diagnostic[];
 }
 
 export interface GenerateRequest {

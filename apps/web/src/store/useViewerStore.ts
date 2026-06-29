@@ -1,21 +1,26 @@
 import { create } from "zustand";
 import type {
-  BomRow,
-  ComponentKind,
   DesignMode,
-  ElementParams,
+  Diagnostic,
+  DiagnosticLevel,
   JointPort,
   SceneDocument,
   SceneElement,
 } from "@flowcad/shared";
+import { generateScene } from "@/lib/api";
+import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
 
 export type ViewMode = "true_scale" | "iso";
 export type LabelMode = "auto" | "all" | "joints" | "none";
 export type AddFromJointKind = "straight" | "elbow" | "tee" | "valve" | "damper" | "reducer";
-type Vec3 = [number, number, number];
+/** Extra parameters for a part added from a 3D joint (e.g. a chosen elbow angle). */
+export interface AddFromJointOptions {
+  angle?: number;
+}
 
 interface ViewerState {
   mode: DesignMode;
+  rows: TableRow[];
   scene: SceneDocument | null;
   selectedId: string | null;
   selectedJointId: string | null;
@@ -28,12 +33,15 @@ interface ViewerState {
   loading: boolean;
 
   setMode: (mode: DesignMode) => void;
+  setRows: (rows: TableRow[]) => void;
+  regenerate: () => Promise<void>;
   setScene: (scene: SceneDocument | null) => void;
   select: (id: string | null) => void;
   selectJoint: (id: string | null) => void;
   hover: (id: string | null) => void;
   hoverJoint: (id: string | null) => void;
-  addFromJoint: (kind: AddFromJointKind) => void;
+  addFromJoint: (kind: AddFromJointKind, opts?: AddFromJointOptions) => void;
+  addTap: (parentSeq: string | number, angle: number) => void;
   rotateFitting: (id: string, deltaDeg: number) => void;
   setSearch: (term: string) => void;
   setViewMode: (vm: ViewMode) => void;
@@ -42,8 +50,19 @@ interface ViewerState {
   setLoading: (v: boolean) => void;
 }
 
+// part_type written into a new table row when adding from a 3D joint.
+const PART_TYPE_FOR: Record<AddFromJointKind, string> = {
+  straight: "straight",
+  elbow: "elbow",
+  tee: "tee",
+  valve: "valve",
+  damper: "damper",
+  reducer: "reducer",
+};
+
 export const useViewerStore = create<ViewerState>((set, get) => ({
   mode: "pipe",
+  rows: sampleRowsFor("pipe"),
   scene: null,
   selectedId: null,
   selectedJointId: null,
@@ -56,39 +75,108 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   loading: false,
 
   setMode: (mode) => set({ mode }),
+  setRows: (rows) => set({ rows }),
+
+  // Single generation path: the table is the source of truth, the backend
+  // computes every position. 3D edits (add/rotate) mutate ``rows`` then call
+  // this, so connected parts re-propagate automatically. Selection is preserved
+  // (element ids are stable ``A{seq}``) so an open DetailPanel stays put.
+  regenerate: async () => {
+    const { mode, rows } = get();
+    set({ loading: true, error: null });
+    try {
+      const scene = await generateScene(mode, rows as Record<string, unknown>[]);
+      set({ scene, loading: false });
+    } catch (e) {
+      set({
+        error: e instanceof Error ? e.message : "알 수 없는 오류",
+        scene: null,
+        loading: false,
+      });
+    }
+  },
+
   setScene: (scene) => set({ scene, selectedId: null, selectedJointId: null, hoveredId: null, hoveredJointId: null }),
   select: (selectedId) => set({ selectedId, selectedJointId: null }),
   selectJoint: (selectedJointId) => set({ selectedJointId, selectedId: null }),
   hover: (hoveredId) => set({ hoveredId }),
   hoverJoint: (hoveredJointId) => set({ hoveredJointId }),
-  addFromJoint: (kind) => {
-    const { scene, selectedJointId, mode } = get();
+
+  addFromJoint: (kind, opts) => {
+    const { scene, selectedJointId, rows, mode } = get();
     if (!scene || !selectedJointId) return;
     const source = findJoint(scene, selectedJointId);
     if (!source || !source.joint.open) return;
 
-    const created = createElementFromJoint(scene, source.element, source.joint, kind, mode);
-    const elements = scene.elements.map((element) => ({
-      ...element,
-      joints: element.joints.map((joint) =>
-        joint.id === source.joint.id ? { ...joint, open: false } : joint,
-      ),
-    }));
-    const bom = [...scene.bom, bomRowFor(created)];
-    set({
-      scene: { ...scene, elements: [...elements, created], bom },
-      selectedId: created.id,
-      selectedJointId: null,
-    });
+    const parentSeq = seqOf(source.element);
+    if (parentSeq == null) return;
+    const newSeq = nextSeq(rows);
+
+    const elbowAngle = opts?.angle ?? 90;
+    const row: TableRow = {
+      seq: newSeq,
+      system_type: mode,
+      part_type: PART_TYPE_FOR[kind],
+      spec: "", // blank -> inherits the connected part's spec/section
+      size_a: "",
+      size_b: "",
+      length: kind === "straight" ? 1000 : kind === "reducer" ? 300 : "",
+      angle: kind === "elbow" ? elbowAngle : "",
+      connect_to_seq: parentSeq,
+      connect_port: source.joint.role,
+      note: "3D에서 추가",
+    };
+
+    set({ rows: [...rows, row], selectedJointId: null });
+    void get()
+      .regenerate()
+      .then(() => set({ selectedId: `A${newSeq}` }));
   },
+
+  addTap: (parentSeq, angle) => {
+    const { rows, mode } = get();
+    const newSeq = nextSeq(rows);
+    // A branch that taps the side of the parent straight (HVAC duct branching):
+    // straight piece, connected via the "tap" port at mid-length by default.
+    const row: TableRow = {
+      seq: newSeq,
+      system_type: mode,
+      part_type: "straight",
+      spec: "",
+      size_a: "",
+      size_b: "",
+      length: 1000,
+      angle,
+      connect_to_seq: parentSeq,
+      connect_port: "tap@0.5",
+      note: angle === 45 ? "45° 래터럴(탭)" : "옆면 분기(탭)",
+    };
+    set({ rows: [...rows, row] });
+    void get()
+      .regenerate()
+      .then(() => set({ selectedId: `A${newSeq}` }));
+  },
+
   rotateFitting: (id, deltaDeg) => {
-    const { scene } = get();
-    if (!scene) return;
-    const elements = scene.elements.map((element) =>
-      element.id === id ? rotateElementFitting(element, deltaDeg) : element,
-    );
-    set({ scene: { ...scene, elements } });
+    const { scene, rows } = get();
+    const element = scene?.elements.find((e) => e.id === id);
+    const seq = seqFromElementId(id);
+    if (!element || seq == null) return;
+    const idx = rows.findIndex((r) => String(r.seq) === seq);
+    if (idx < 0) return;
+
+    // Rectangular fittings snap to 90° (matches the backend roll quantisation).
+    const rectangular = element.params.width != null || element.params.height != null;
+    const current = Number(rows[idx].rotation ?? 0) || 0;
+    let next = current + deltaDeg;
+    if (rectangular) next = Math.round(next / 90) * 90;
+    next = ((next % 360) + 360) % 360;
+
+    const nextRows = rows.map((r, i) => (i === idx ? { ...r, rotation: next } : r));
+    set({ rows: nextRows });
+    void get().regenerate();
   },
+
   setSearch: (searchTerm) => set({ searchTerm }),
   setViewMode: (viewMode) => set({ viewMode }),
   setLabelMode: (labelMode) => set({ labelMode }),
@@ -98,7 +186,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
 /**
  * Visibility/emphasis rule for an element given the current search term.
- * Implements plan 짠3.2: non-matching elements fade to 20% opacity.
+ * Implements plan §3.2: non-matching elements fade to 20% opacity.
  */
 export function matchesSearch(
   userData: Record<string, string>,
@@ -111,6 +199,32 @@ export function matchesSearch(
   );
 }
 
+const _LEVEL_RANK: Record<DiagnosticLevel, number> = { info: 0, warning: 1, error: 2 };
+
+/** Group a scene's diagnostics by the input row (`seq`) they refer to. */
+export function diagnosticsBySeq(
+  scene: SceneDocument | null,
+): Map<string, Diagnostic[]> {
+  const map = new Map<string, Diagnostic[]>();
+  if (!scene?.diagnostics) return map;
+  for (const d of scene.diagnostics) {
+    if (!d.seq) continue;
+    const list = map.get(d.seq);
+    if (list) list.push(d);
+    else map.set(d.seq, [d]);
+  }
+  return map;
+}
+
+/** The highest-severity level among a list of diagnostics (null if empty). */
+export function worstLevel(diags: Diagnostic[]): DiagnosticLevel | null {
+  let worst: DiagnosticLevel | null = null;
+  for (const d of diags) {
+    if (worst === null || _LEVEL_RANK[d.level] > _LEVEL_RANK[worst]) worst = d.level;
+  }
+  return worst;
+}
+
 function findJoint(scene: SceneDocument, jointId: string): { element: SceneElement; joint: JointPort } | null {
   for (const element of scene.elements) {
     const joint = element.joints.find((candidate) => candidate.id === jointId);
@@ -119,257 +233,23 @@ function findJoint(scene: SceneDocument, jointId: string): { element: SceneEleme
   return null;
 }
 
-function createElementFromJoint(
-  scene: SceneDocument,
-  sourceElement: SceneElement,
-  sourceJoint: JointPort,
-  addKind: AddFromJointKind,
-  mode: DesignMode,
-): SceneElement {
-  const localNo = nextLocalNumber(scene);
-  const id = `LOCAL-${localNo.toString().padStart(3, "0")}`;
-  const itemNo = id;
-  const dir = normalize(sourceJoint.direction);
-  const start = sourceJoint.position;
-  const radius = sourceElement.params.radius ?? 57.15;
-  const width = sourceElement.params.width ?? radius * 2;
-  const height = sourceElement.params.height ?? radius * 2;
-  const baseUserData = {
-    seq: (scene.elements.length + 1).toString(),
-    itemNo,
-    connect_to_seq: sourceElement.userData.seq ?? sourceElement.userData.itemNo ?? "",
-    connect_port: sourceJoint.role ?? "out",
-    jointNo: sourceJoint.no,
-    fittingNo: "",
-    drawingNo: sourceElement.userData.drawingNo ?? "",
-    spec: sourceElement.userData.spec ?? "LOCAL",
-  };
+/** Recover the input-row seq from a backend element id (``A{seq}``). */
+function seqFromElementId(id: string): string | null {
+  const match = /^A(.+)$/.exec(id);
+  return match ? match[1] : null;
+}
 
-  if (addKind === "straight") {
-    const end = add(start, scale(dir, 1000));
-    const kind: ComponentKind = mode === "duct" || sourceElement.kind === "duct_segment" ? "duct_segment" : "pipe_segment";
-    const params: ElementParams = kind === "duct_segment" && sourceElement.params.width != null
-      ? { start, end, width, height, direction: dir }
-      : { start, end, radius, direction: dir };
-    const joints = [
-      connectedJoint(id, sourceJoint, "start", start, dir),
-      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "end", end, dir),
-    ];
-    return makeElement(id, itemNo, kind, params, colorFor(kind), { ...baseUserData, length_mm: "1000" }, joints);
+/** The seq an element was generated from (its id, falling back to userData). */
+function seqOf(element: SceneElement): string | number | null {
+  return seqFromElementId(element.id) ?? element.userData.seq ?? null;
+}
+
+/** Next free numeric seq for a new row. */
+function nextSeq(rows: TableRow[]): number {
+  let max = 0;
+  for (const r of rows) {
+    const n = Number(r.seq);
+    if (Number.isFinite(n) && n > max) max = n;
   }
-
-  if (addKind === "elbow") {
-    const bendRadius = Math.max(sourceElement.params.bendRadius ?? radius * 3, radius * 2);
-    const out = perpendicular(dir);
-    const center = add(start, scale(dir, bendRadius));
-    const outPoint = add(center, scale(out, bendRadius));
-    const params: ElementParams = sourceElement.params.width != null
-      ? { position: center, radius, width, height, inDirection: dir, outDirection: out, bendRadius, direction: out, rollDeg: 0 }
-      : { position: center, radius, inDirection: dir, outDirection: out, bendRadius, direction: out, rollDeg: 0 };
-    const joints = [
-      connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", outPoint, out),
-    ];
-    return makeElement(id, itemNo, "elbow", params, colorFor("elbow"), baseUserData, joints);
-  }
-
-  if (addKind === "tee") {
-    const runLength = Math.max(radius * 5, 400);
-    const branchLength = Math.max(radius * 4, 300);
-    const branch = perpendicular(dir);
-    const center = add(start, scale(dir, runLength / 2));
-    const outPoint = add(center, scale(dir, runLength / 2));
-    const branchPoint = add(center, scale(branch, branchLength));
-    const params: ElementParams = sourceElement.params.width != null
-      ? { position: center, radius, width, height, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength, rollDeg: 0 }
-      : { position: center, radius, direction: dir, mainDirection: dir, branchDirection: branch, runLength, branchLength, rollDeg: 0 };
-    const joints = [
-      connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", outPoint, dir),
-      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}b`, "branch", branchPoint, branch),
-    ];
-    return makeElement(id, itemNo, "tee", params, colorFor("tee"), baseUserData, joints);
-  }
-
-  if (addKind === "reducer") {
-    const length = Math.max(radius * 2, 150);
-    const end = add(start, scale(dir, length));
-    const isRound = sourceElement.params.width == null;
-    const params: ElementParams = isRound
-      ? { start, end, direction: dir, fromShape: "round", fromRadius: radius, toShape: "round", toRadius: radius * 0.75 }
-      : { start, end, direction: dir, fromShape: "rectangular", fromWidth: width, fromHeight: height, toShape: "rectangular", toWidth: width * 0.75, toHeight: height * 0.75 };
-    const joints = [
-      connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-      openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", end, dir),
-    ];
-    return makeElement(id, itemNo, "transition", params, colorFor("transition"), baseUserData, joints);
-  }
-
-  const isDamper = addKind === "damper";
-  const bodyLength = isDamper ? Math.max(radius * 3, 300) : Math.max(radius * 4, 250);
-  const flangeThickness = Math.max(radius * 0.28, 18);
-  const half = isDamper ? bodyLength / 2 : bodyLength / 2 + flangeThickness / 2;
-  const center = add(start, scale(dir, half));
-  const end = add(center, scale(dir, half));
-  const kind: ComponentKind = isDamper ? "damper" : "valve";
-  const params: ElementParams = isDamper
-    ? { position: center, radius, width, height, direction: dir, bodyLength, bladeThickness: Math.max(Math.min(radius * 0.08, 30), 8), rollDeg: 0 }
-    : { position: center, radius, direction: dir, bodyLength, flangeRadius: radius * 1.25, flangeThickness, handleRadius: radius * 1.35, rollDeg: 0 };
-  const joints = [
-    connectedJoint(id, sourceJoint, "in", start, scale(dir, -1)),
-    openJoint(id, `sw-local-${localNo.toString().padStart(3, "0")}`, "out", end, dir),
-  ];
-  return makeElement(id, itemNo, kind, params, colorFor(kind), baseUserData, joints);
-}
-
-function makeElement(
-  id: string,
-  itemNo: string,
-  kind: ComponentKind,
-  params: ElementParams,
-  color: string,
-  userData: Record<string, string>,
-  joints: JointPort[],
-): SceneElement {
-  return { id, itemNo, kind, params, color, userData, joints };
-}
-
-function connectedJoint(id: string, source: JointPort, role: string, position: Vec3, direction: Vec3): JointPort {
-  return { id: `${id}-${role}`, no: source.no, role, position, direction: normalize(direction), open: false };
-}
-
-function openJoint(id: string, no: string, role: string, position: Vec3, direction: Vec3): JointPort {
-  return { id: `${id}-${role}`, no, role, position, direction: normalize(direction), open: true };
-}
-
-function bomRowFor(element: SceneElement): BomRow {
-  return {
-    elementId: element.id,
-    itemNo: element.itemNo,
-    jointNo: element.userData.jointNo ?? "",
-    jointNos: element.joints.map((joint) => joint.no).join(", "),
-    fittingNo: element.userData.fittingNo ?? "",
-    drawingNo: element.userData.drawingNo ?? "",
-    description: descriptionFor(element.kind),
-    spec: element.userData.spec ?? "",
-    lengthMm: Number(element.userData.length_mm ?? 0),
-  };
-}
-
-function rotateElementFitting(element: SceneElement, deltaDeg: number): SceneElement {
-  if (!["elbow", "tee", "valve", "damper"].includes(element.kind)) return element;
-
-  const snap = element.params.width != null || element.params.height != null;
-  const delta = snap ? Math.sign(deltaDeg || 1) * 90 : deltaDeg;
-  const nextRoll = normalizeAngle((element.params.rollDeg ?? 0) + delta, snap);
-  const params: ElementParams = { ...element.params, rollDeg: nextRoll };
-  let joints = element.joints;
-
-  if (element.kind === "tee") {
-    const axis = normalize(params.mainDirection ?? params.direction ?? [1, 0, 0]);
-    const currentBranch = normalize(params.branchDirection ?? perpendicular(axis));
-    const branch = rotateAroundAxis(currentBranch, axis, delta);
-    params.branchDirection = branch;
-    joints = element.joints.map((joint) =>
-      joint.role === "branch" && params.position
-        ? {
-            ...joint,
-            position: add(params.position, scale(branch, params.branchLength ?? Math.max((params.radius ?? 50) * 4, 300))),
-            direction: branch,
-          }
-        : joint,
-    );
-  } else if (element.kind === "elbow") {
-    const axis = normalize(params.inDirection ?? params.direction ?? [1, 0, 0]);
-    const out = rotateAroundAxis(normalize(params.outDirection ?? perpendicular(axis)), axis, delta);
-    params.outDirection = out;
-    params.direction = out;
-    joints = element.joints.map((joint) =>
-      joint.role === "out" && params.position
-        ? {
-            ...joint,
-            position: add(params.position, scale(out, params.bendRadius ?? (params.radius ?? 50) * 3)),
-            direction: out,
-          }
-        : joint,
-    );
-  }
-
-  return { ...element, params, joints };
-}
-
-function normalizeAngle(degrees: number, snap: boolean): number {
-  const value = snap ? Math.round(degrees / 90) * 90 : degrees;
-  return ((value % 360) + 360) % 360;
-}
-
-function nextLocalNumber(scene: SceneDocument): number {
-  const nums = scene.elements
-    .map((element) => /^LOCAL-(\d+)$/.exec(element.id)?.[1])
-    .filter((value): value is string => value != null)
-    .map(Number);
-  return (nums.length ? Math.max(...nums) : 0) + 1;
-}
-
-function colorFor(kind: ComponentKind): string {
-  return {
-    pipe_segment: "#9aa7b4",
-    duct_segment: "#c9b377",
-    elbow: "#6c8cd5",
-    tee: "#5cb88a",
-    valve: "#d56c6c",
-    transition: "#b07cd5",
-    damper: "#d59a4f",
-    error_marker: "#ef4444",
-  }[kind];
-}
-
-function descriptionFor(kind: ComponentKind): string {
-  return {
-    pipe_segment: "Pipe (straight)",
-    duct_segment: "Duct (straight)",
-    elbow: "Elbow",
-    tee: "Tee",
-    valve: "Valve",
-    transition: "Transition",
-    damper: "Damper",
-    error_marker: "Error Marker",
-  }[kind];
-}
-
-function add(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function scale(a: Vec3, n: number): Vec3 {
-  return [a[0] * n, a[1] * n, a[2] * n];
-}
-
-function normalize(a: Vec3): Vec3 {
-  const length = Math.hypot(a[0], a[1], a[2]);
-  if (length <= 1e-9) return [1, 0, 0];
-  return [a[0] / length, a[1] / length, a[2] / length];
-}
-
-function perpendicular(dir: Vec3): Vec3 {
-  const candidate: Vec3 = Math.abs(dir[1]) < 0.9 ? [-dir[2], 0, dir[0]] : [1, 0, 0];
-  return normalize(candidate);
-}
-
-function rotateAroundAxis(vector: Vec3, axis: Vec3, degrees: number): Vec3 {
-  const k = normalize(axis);
-  const theta = (degrees * Math.PI) / 180;
-  const cos = Math.cos(theta);
-  const sin = Math.sin(theta);
-  const cross: Vec3 = [
-    k[1] * vector[2] - k[2] * vector[1],
-    k[2] * vector[0] - k[0] * vector[2],
-    k[0] * vector[1] - k[1] * vector[0],
-  ];
-  const dot = k[0] * vector[0] + k[1] * vector[1] + k[2] * vector[2];
-  return normalize([
-    vector[0] * cos + cross[0] * sin + k[0] * dot * (1 - cos),
-    vector[1] * cos + cross[1] * sin + k[1] * dot * (1 - cos),
-    vector[2] * cos + cross[2] * sin + k[2] * dot * (1 - cos),
-  ]);
+  return max + 1;
 }

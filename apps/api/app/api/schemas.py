@@ -54,12 +54,22 @@ class BomRowDTO(BaseModel):
     lengthMm: float
 
 
+class DiagnosticDTO(BaseModel):
+    level: str
+    code: str
+    seq: str
+    message: str
+    suggestion: str
+    position: list[float] | None
+
+
 class SceneDocumentDTO(BaseModel):
     units: str
     boundsMin: Vec3DTO
     boundsMax: Vec3DTO
     elements: list[SceneElementDTO]
     bom: list[BomRowDTO]
+    diagnostics: list[DiagnosticDTO]
 
     @classmethod
     def from_domain(cls, scene: SceneDocument) -> "SceneDocumentDTO":
@@ -89,5 +99,11 @@ class SceneDocumentDTO(BaseModel):
                           fittingNo=b.fitting_no, drawingNo=b.drawing_no,
                           description=b.description, spec=b.spec, lengthMm=b.length_mm)
                 for b in scene.bom
+            ],
+            diagnostics=[
+                DiagnosticDTO(level=d.level, code=d.code, seq=d.seq,
+                              message=d.message, suggestion=d.suggestion,
+                              position=d.position)
+                for d in scene.diagnostics
             ],
         )

@@ -9,16 +9,21 @@ import math
 
 from ..domain.enums import ComponentKind
 from ..domain.geometry import Vec3
-from ..domain.scene import BomRow, SceneDocument, SceneElement
+from ..domain.scene import BomRow, Diagnostic, SceneDocument, SceneElement
 
 
 class SceneBuilder:
     def __init__(self) -> None:
         self._elements: list[SceneElement] = []
         self._bom: list[BomRow] = []
+        self._diagnostics: list[Diagnostic] = []
         self._min = [math.inf, math.inf, math.inf]
         self._max = [-math.inf, -math.inf, -math.inf]
         self._item_counter = 0
+
+    def add_diagnostics(self, diagnostics: list[Diagnostic]) -> "SceneBuilder":
+        self._diagnostics.extend(diagnostics)
+        return self
 
     def add(self, element: SceneElement) -> "SceneBuilder":
         if not element.item_no:
@@ -32,7 +37,7 @@ class SceneBuilder:
 
     def build(self) -> SceneDocument:
         if not self._elements:
-            return SceneDocument()
+            return SceneDocument(diagnostics=self._diagnostics)
         self._resolve_open_joints()
         return SceneDocument(
             units="mm",
@@ -40,6 +45,7 @@ class SceneBuilder:
             bounds_max=Vec3(*self._max),
             elements=self._elements,
             bom=self._bom,
+            diagnostics=self._diagnostics,
         )
 
     # -- internals ------------------------------------------------------------
@@ -71,7 +77,7 @@ class SceneBuilder:
             joint_nos=joint_nos,
             fitting_no=ud.get("fittingNo", ""),
             drawing_no=ud.get("drawingNo", ""),
-            description=_DESCRIPTIONS.get(element.kind, element.kind.value),
+            description=_describe(element),
             spec=ud.get("spec", ""),
             length_mm=length,
         )
@@ -89,10 +95,28 @@ class SceneBuilder:
 _DESCRIPTIONS: dict[ComponentKind, str] = {
     ComponentKind.PIPE_SEGMENT: "Pipe (straight)",
     ComponentKind.DUCT_SEGMENT: "Duct (straight)",
-    ComponentKind.ELBOW: "Elbow 90°",
+    ComponentKind.ELBOW: "Elbow",
     ComponentKind.TEE: "Tee",
     ComponentKind.VALVE: "Valve",
     ComponentKind.TRANSITION: "Transition",
     ComponentKind.DAMPER: "Damper",
     ComponentKind.ERROR_MARKER: "Design Rule Error Marker",
 }
+
+# Distinct names for part_type subtypes that share one ComponentKind, so a
+# reducer / eccentric reducer / transition appear as separate BOM line items
+# instead of all collapsing to "Transition".
+_PART_TYPE_DESC: dict[str, str] = {
+    "reducer": "Reducer",
+    "reducer_conc": "Reducer (concentric)",
+    "reducer_ecc": "Reducer (eccentric)",
+    "transition": "Transition",
+    "transform": "Transition",
+}
+
+
+def _describe(element: SceneElement) -> str:
+    part_type = element.user_data.get("partType", "")
+    return _PART_TYPE_DESC.get(part_type) or _DESCRIPTIONS.get(
+        element.kind, element.kind.value
+    )
