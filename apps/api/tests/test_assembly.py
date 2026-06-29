@@ -201,6 +201,82 @@ def test_disconnected_runs_do_not_overlap(service: GenerationService) -> None:
     assert seg1.params["start"][1] != seg2.params["start"][1]
 
 
+def test_inline_valve_mates_flush_with_neighbour_pipes(service: GenerationService) -> None:
+    """A straight->valve->straight chain must leave no gap at either valve face."""
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "valve",
+         "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000,
+         "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    seg_in = next(e for e in scene.elements if e.id == "A1")
+    valve = next(e for e in scene.elements if e.id == "A2")
+    seg_out = next(e for e in scene.elements if e.id == "A3")
+
+    valve_in = next(j for j in valve.joints if j.role == "in").position
+    valve_out = next(j for j in valve.joints if j.role == "out").position
+    # upstream pipe ends exactly on the valve inlet face; downstream starts on outlet
+    assert seg_in.params["end"] == pytest.approx(valve_in)
+    assert seg_out.params["start"] == pytest.approx(valve_out)
+
+
+def test_unknown_connect_target_emits_error_marker(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000,
+         "connect_to_seq": 99, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    markers = [e for e in scene.elements if e.kind is ComponentKind.ERROR_MARKER]
+    assert markers and "찾을 수 없음" in markers[0].user_data["desc"]
+
+
+def test_duplicate_seq_is_rejected(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+    ]
+    with pytest.raises(AssemblyError):
+        service.generate(DesignMode.PIPE, rows)
+
+
+def test_elbow_turn_does_not_leak_into_roll(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "elbow", "angle": 90,
+         "connect_to_seq": 1, "connect_port": "end"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    elbow = next(e for e in scene.elements if e.kind is ComponentKind.ELBOW)
+    assert elbow.params["rollDeg"] == pytest.approx(0.0)
+
+
+def test_negative_elbow_angle_turns_the_other_way(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100, "length": 1000},
+        {"seq": 2, "system_type": "pipe", "part_type": "elbow", "angle": -90,
+         "connect_to_seq": 1, "connect_port": "end"},
+        {"seq": 3, "system_type": "pipe", "part_type": "straight", "length": 1000,
+         "connect_to_seq": 2, "connect_port": "out"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    seg = next(e for e in scene.elements if e.id == "A3")
+    assert seg.params["direction"] == pytest.approx([0.0, -1.0, 0.0])
+
+
+def test_direction_vector_form_is_accepted(service: GenerationService) -> None:
+    rows = [
+        {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100,
+         "length": 1000, "direction": "1,0,1"},
+    ]
+    scene = service.generate(DesignMode.PIPE, rows)
+    seg = next(e for e in scene.elements if e.kind is ComponentKind.PIPE_SEGMENT)
+    inv = 1000 * (2 ** 0.5 / 2)
+    assert seg.params["end"] == pytest.approx([inv, 0.0, inv], abs=1e-6)
+
+
 def test_bom_has_one_row_per_element(service: GenerationService) -> None:
     rows = [
         {"seq": 1, "system_type": "pipe", "part_type": "straight", "size_a": 100,
