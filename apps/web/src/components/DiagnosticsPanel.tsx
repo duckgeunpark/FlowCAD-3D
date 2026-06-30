@@ -15,6 +15,7 @@ export function DiagnosticsPanel() {
   const scene = useViewerStore((s) => s.scene);
   const select = useViewerStore((s) => s.select);
   const selectedId = useViewerStore((s) => s.selectedId);
+  const mode = useViewerStore((s) => s.mode);
   const [open, setOpen] = useState(true);
 
   const diags = scene?.diagnostics ?? [];
@@ -48,7 +49,9 @@ export function DiagnosticsPanel() {
         <ul className="max-h-44 overflow-auto px-2 pb-2 space-y-1">
           {sorted.map((d, i) => {
             const meta = LEVEL_META[d.level];
-            const targetId = d.seq ? `A${d.seq}` : null;
+            // A scene element's id is `A{seq}` in pipe (assembly) mode and the
+            // `element_id` (== diagnostic.seq) in duct (v2) mode.
+            const targetId = d.seq ? (mode === "pipe" ? `A${d.seq}` : d.seq) : null;
             const active = targetId != null && targetId === selectedId;
             return (
               <li

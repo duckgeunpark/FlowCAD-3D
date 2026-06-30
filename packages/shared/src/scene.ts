@@ -83,6 +83,11 @@ export interface ElementParams {
   /** Multi-branch fittings (tee/wye/cross/splitter) emit their arms here. */
   branches?: BranchSpec[];
   branchAngleDeg?: number;
+  /** True when the fitting has a straight through-run (tee/wye); false for
+   * inlet-stub parts (tap/cross/splitter) that only branch outward. */
+  through?: boolean;
+  /** v2 ``part_subtype`` for complex splitters (e.g. BULLHEAD_TEE_DOUBLE_ELBOW). */
+  partSubtype?: string;
 }
 
 export interface JointPort {

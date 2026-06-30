@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { getFitting, type SceneElement } from "@flowcad/shared";
 import { useViewerStore } from "@/store/useViewerStore";
+import { rowElementId } from "@/lib/sampleData";
 
 const LABELS: Record<string, string> = {
   drawingNo: "도면번호",
@@ -31,6 +32,11 @@ const PART_TYPE_LABEL: Record<string, string> = {
   tee: "티",
   rect_tee: "각 덕트 티",
   round_tee: "원형 덕트 티",
+  wye: "와이 분기",
+  cross: "크로스 분기",
+  tap: "탭(측면 분기)",
+  splitter: "스플리터",
+  cap: "캡(막음)",
   valve: "밸브",
   damper: "댐퍼",
   reducer: "레듀서",
@@ -48,7 +54,7 @@ export function DetailPanel() {
   if (!element) return null;
 
   const isError = element.kind === "error_marker";
-  const canRotate = ["elbow", "tee", "valve", "damper", "transition"].includes(element.kind);
+  const canRotate = ["elbow", "tee", "wye", "cross", "tap", "splitter", "valve", "damper", "transition"].includes(element.kind);
   const rectangular = element.params.width != null || element.params.height != null;
   const rotateStep = rectangular ? 90 : 15;
 
@@ -123,6 +129,7 @@ function kindLabel(element: SceneElement): string {
 }
 
 function DimensionEditor({ element }: { element: SceneElement }) {
+  const mode = useViewerStore((s) => s.mode);
   const rows = useViewerStore((s) => s.rows);
   const setRows = useViewerStore((s) => s.setRows);
   const regenerate = useViewerStore((s) => s.regenerate);
@@ -131,8 +138,7 @@ function DimensionEditor({ element }: { element: SceneElement }) {
   const isTransition = p.fromShape != null || p.toShape != null;
   const isRect = !isTransition && (p.width != null || p.height != null);
   const isRound = !isTransition && !isRect && p.radius != null;
-  const seq = element.id.replace(/^A/, "");
-  const rowIdx = rows.findIndex((r) => String(r.seq ?? "").trim() === seq);
+  const rowIdx = rows.findIndex((r) => rowElementId(r, mode) === element.id);
 
   const [a, setA] = useState("");
   const [b, setB] = useState("");
@@ -158,11 +164,15 @@ function DimensionEditor({ element }: { element: SceneElement }) {
   }
 
   const commit = () => {
-    const next = rows.map((r, i) =>
-      i === rowIdx
-        ? { ...r, size_a: a, ...(isRect ? { size_b: b, W: a, H: b } : { D: a }) }
-        : r,
-    );
+    const next = rows.map((r, i) => {
+      if (i !== rowIdx) return r;
+      // DUCT (v2) rows use width/height/diameter; PIPE (assembly) rows use the
+      // size_a/size_b/W/H/D columns.
+      if (mode === "duct") {
+        return { ...r, ...(isRect ? { width: a, height: b } : { diameter: a }) };
+      }
+      return { ...r, size_a: a, ...(isRect ? { size_b: b, W: a, H: b } : { D: a }) };
+    });
     setRows(next);
     void regenerate();
   };
@@ -191,6 +201,7 @@ function DimensionEditor({ element }: { element: SceneElement }) {
 }
 
 function LengthEditor({ element }: { element: SceneElement }) {
+  const mode = useViewerStore((s) => s.mode);
   const rows = useViewerStore((s) => s.rows);
   const setRows = useViewerStore((s) => s.setRows);
   const regenerate = useViewerStore((s) => s.regenerate);
@@ -201,15 +212,14 @@ function LengthEditor({ element }: { element: SceneElement }) {
   const span = p.start && p.end
     ? Math.hypot(p.end[0] - p.start[0], p.end[1] - p.start[1], p.end[2] - p.start[2])
     : null;
-  const seq = element.id.replace(/^A/, "");
-  const rowIdx = rows.findIndex((r) => String(r.seq ?? "").trim() === seq);
+  const rowIdx = rows.findIndex((r) => rowElementId(r, mode) === element.id);
   const row = rowIdx >= 0 ? rows[rowIdx] : undefined;
+  const rowLen = mode === "duct" ? row?.centerline_length : row?.length;
 
   const [len, setLen] = useState("");
   useEffect(() => {
-    const rowLen = row?.length;
     setLen(rowLen != null && String(rowLen).trim() !== "" ? String(rowLen) : span != null ? String(Math.round(span)) : "");
-  }, [element.id, row?.length, span]);
+  }, [element.id, rowLen, span]);
 
   if (span == null) return null;
   const editable = rowIdx >= 0 && !isAutoLen;
@@ -222,7 +232,37 @@ function LengthEditor({ element }: { element: SceneElement }) {
   }
 
   const commit = () => {
-    setRows(rows.map((r, i) => (i === rowIdx ? { ...r, length: len, L: len } : r)));
+    setRows(rows.map((r, i) => {
+      if (i !== rowIdx) return r;
+      if (mode !== "duct") return { ...r, length: len, L: len };
+      // v2 straight: keep centerline_length and the absolute end_* coords in sync
+      // (end = origin + unit(dir) * length) so the rendered geometry updates.
+      const L = Number(len) || 0;
+      const ox = Number(r.origin_x ?? 0);
+      const oy = Number(r.origin_y ?? 0);
+      const oz = Number(r.origin_z ?? 0);
+      let dx = Number(r.dir_x ?? 0);
+      let dy = Number(r.dir_y ?? 0);
+      let dz = Number(r.dir_z ?? 0);
+      let mag = Math.hypot(dx, dy, dz);
+      if (mag < 1e-9) {
+        // No explicit dir_*: derive heading from the current end - origin so the
+        // edit keeps the run's direction instead of collapsing to zero length.
+        dx = Number(r.end_x ?? 0) - ox;
+        dy = Number(r.end_y ?? 0) - oy;
+        dz = Number(r.end_z ?? 0) - oz;
+        mag = Math.hypot(dx, dy, dz);
+      }
+      mag = mag || 1;
+      dx /= mag; dy /= mag; dz /= mag;
+      return {
+        ...r,
+        centerline_length: len,
+        end_x: ox + dx * L,
+        end_y: oy + dy * L,
+        end_z: oz + dz * L,
+      };
+    }));
     void regenerate();
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -287,7 +327,7 @@ function describeDimensions(p: import("@flowcad/shared").ElementParams): { label
 }
 
 function sectionText(
-  shape: "rectangular" | "round" | undefined,
+  shape: "rectangular" | "round" | "oval" | "flat_oval" | undefined,
   width: number | undefined,
   height: number | undefined,
   radius: number | undefined,

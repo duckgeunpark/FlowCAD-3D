@@ -61,6 +61,14 @@ _AXIS_TOKENS: dict[str, Vec3] = {
     "ZP": Vec3(0, 0, 1), "ZN": Vec3(0, 0, -1),
 }
 
+# v2 ``branch_b_side`` / ``branch_c_side`` keywords -> world axis. Used for complex
+# splitters / double-branch parts authored by side instead of orientation codes.
+_SIDE_AXIS: dict[str, Vec3] = {
+    "RIGHT": Vec3(1, 0, 0), "LEFT": Vec3(-1, 0, 0),
+    "FRONT": Vec3(0, 1, 0), "BACK": Vec3(0, -1, 0),
+    "TOP": Vec3(0, 0, 1), "BOTTOM": Vec3(0, 0, -1),
+}
+
 # fitting_type / family keyword -> ComponentKind for FITTING rows.
 _FITTING_KIND: dict[str, ComponentKind] = {
     "ELBOW": ComponentKind.ELBOW,
@@ -281,9 +289,14 @@ class _V2Resolver:
         shape = _shape_of(_str(row.get("shape_code")))
 
         section = self._section(row, shape, prefix="")
-        out_section = self._section(row, shape, prefix="outlet") or section
-        if out_section is None:
-            out_section = section
+        # A transition's outlet can change shape (e.g. RECT → ROUND), so infer the
+        # outlet shape from the outlet_* dims / family code rather than assuming it
+        # matches the inlet ``shape_code``.
+        out_section = self._section(row, self._outlet_shape(row, shape), prefix="outlet")
+        # A family-hint round outlet with no outlet_diameter would size to 0; fall
+        # back to the inlet's nominal size so the transition stays non-degenerate.
+        if out_section.shape is DuctShape.ROUND and out_section.diameter <= 0:
+            out_section.diameter = section.nominal_radius * 2
 
         origin = self._vec(row, "origin_x", "origin_y", "origin_z")
         if origin is None:
@@ -309,15 +322,7 @@ class _V2Resolver:
         else:
             out_dir = axes[1] if len(axes) > 1 else (dir_vec or in_dir)
 
-        branch_dirs: list[Vec3] = []
-        if kind in (ComponentKind.TEE, ComponentKind.WYE):
-            branch_dirs = [axes[2]] if len(axes) > 2 else [self._fallback_branch(in_dir)]
-        elif kind in (ComponentKind.CROSS, ComponentKind.SPLITTER):
-            branch_dirs = axes[1:] if len(axes) > 1 else [
-                self._fallback_branch(in_dir), self._fallback_branch(in_dir).scaled(-1)
-            ]
-        elif kind is ComponentKind.TAP:
-            branch_dirs = [axes[1]] if len(axes) > 1 else [self._fallback_branch(in_dir)]
+        branch_dirs = self._branch_dirs(row, kind, axes, in_dir, out_dir)
 
         # End coordinate for straights.
         end = self._vec(row, "end_x", "end_y", "end_z")
@@ -357,6 +362,21 @@ class _V2Resolver:
         return (ComponentKind.PIPE_SEGMENT if mode is DesignMode.PIPE
                 else ComponentKind.DUCT_SEGMENT)
 
+    @staticmethod
+    def _outlet_shape(row: dict, inlet_shape: DuctShape) -> DuctShape:
+        """Shape of a transition's outlet section, inferred from the outlet dims
+        (``outlet_diameter`` → round, ``outlet_width/height`` → rect) and, failing
+        that, the ``family_code`` / ``standard_code`` hint; else the inlet shape."""
+        if _num(row.get("outlet_diameter")) is not None:
+            return DuctShape.ROUND
+        if _num(row.get("outlet_width")) is not None or _num(row.get("outlet_height")) is not None:
+            return DuctShape.RECTANGULAR
+        hint = (_str(row.get("family_code")) + " " + _str(row.get("standard_code"))).upper()
+        if "RECT" in hint and "ROUND" in hint:
+            # e.g. TRANSITION_RECT_ROUND: inlet rect, outlet round.
+            return DuctShape.ROUND
+        return inlet_shape
+
     def _section(self, row: dict, shape: DuctShape, prefix: str) -> _Section:
         def g(name: str) -> float | None:
             key = f"{prefix}_{name}" if prefix else name
@@ -380,6 +400,68 @@ class _V2Resolver:
         if candidate.length() <= 1e-9:
             return Vec3(1.0, 0.0, 0.0)
         return _norm(candidate)
+
+    def _branch_dirs(
+        self, row: dict, kind: ComponentKind, axes: list[Vec3],
+        in_dir: Vec3, out_dir: Vec3,
+    ) -> list[Vec3]:
+        """Resolve branch arm directions, most explicit signal first.
+
+        1. ``orientation_code`` axes (in/out/branch...) — authoritative when present.
+        2. ``branch_b_side`` / ``branch_c_side`` mapped to world axes (v2 complex
+           splitters / double-branch parts authored by side instead of axis codes).
+        3. an angled fallback off the run (wye/lateral honour ``branch_angle_deg``).
+        """
+        sides = [
+            self._side_axis(_str(row.get("branch_b_side"))),
+            self._side_axis(_str(row.get("branch_c_side"))),
+        ]
+        angle = _num(row.get("branch_angle_deg"))
+        if angle is None:
+            angle = _num(row.get("angle_deg"))
+
+        # An explicit orientation-code branch axis is the authored direction itself,
+        # so it is returned verbatim; only the side-keyword / fallback path is angled
+        # off the run (where the side is a reference, not the final direction).
+        if kind is ComponentKind.TAP:
+            if len(axes) > 1:
+                return [axes[1]]
+            side = sides[0] or self._fallback_branch(in_dir)
+            return [self._angled_branch(in_dir, side, angle, kind)]
+        if kind in (ComponentKind.TEE, ComponentKind.WYE):
+            if len(axes) > 2:
+                return [axes[2]]
+            side = sides[0] or self._fallback_branch(in_dir)
+            return [self._angled_branch(out_dir, side, angle, kind)]
+        # CROSS / SPLITTER: two (or more) arms.
+        if len(axes) > 1:
+            return list(axes[1:])
+        resolved = [s for s in sides if s is not None]
+        if resolved:
+            return resolved
+        fb = self._fallback_branch(in_dir)
+        return [fb, fb.scaled(-1)]
+
+    @staticmethod
+    def _side_axis(side: str) -> Vec3 | None:
+        return _SIDE_AXIS.get(side.strip().upper())
+
+    @staticmethod
+    def _angled_branch(
+        run: Vec3, side: Vec3, angle: float | None, kind: ComponentKind
+    ) -> Vec3:
+        """Branch direction at ``angle`` off the ``run`` toward ``side``.
+
+        A tee defaults to a perpendicular (90°) branch; a wye/lateral to 45°.
+        ``angle`` (``branch_angle_deg``) overrides the default when supplied.
+        """
+        run = _norm(run)
+        side = _norm(side)
+        default = 45.0 if kind is ComponentKind.WYE else 90.0
+        theta = math.radians(angle if angle is not None else default)
+        if abs(theta - math.pi / 2.0) <= 1e-6:
+            return side
+        return _norm(run.scaled(math.cos(theta)) + side.scaled(math.sin(theta)))
 
     @staticmethod
     def _vec(row: dict, *keys: str) -> Vec3 | None:
@@ -502,14 +584,20 @@ class _V2Resolver:
         branch_len = max(radius * 4.0, 300.0)
         branch_sec = self._branch_section(el)
 
+        through = el.kind in (ComponentKind.TEE, ComponentKind.WYE)
         params: dict = {
             "position": list(corner.as_tuple()),
             "radius": radius,
             "direction": _unit_list(el.out_dir),
             "mainDirection": _unit_list(el.out_dir),
+            "inDirection": _unit_list(el.in_dir),
             "runLength": run_len,
             "branchLength": branch_len,
+            "through": through,
         }
+        subtype = _str(el.row.get("part_subtype"))
+        if subtype:
+            params["partSubtype"] = subtype
         params.update(_shape_params(sec))
         joints: list[JointPort] = []
         branches: list[dict] = []

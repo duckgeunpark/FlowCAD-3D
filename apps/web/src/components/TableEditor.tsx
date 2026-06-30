@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignMode, DiagnosticLevel } from "@flowcad/shared";
-import { columnsFor, ELBOW_DIRECTIONS, type TableRow } from "@/lib/sampleData";
+import {
+  columnsFor,
+  ELBOW_DIRECTIONS,
+  rowDiagKey,
+  rowElementId,
+  type TableRow,
+} from "@/lib/sampleData";
 import { downloadTemplate, uploadTable } from "@/lib/api";
 import { diagnosticsBySeq, useViewerStore, worstLevel } from "@/store/useViewerStore";
 import { summarize, toCsv, download } from "@/lib/bom";
@@ -77,7 +83,7 @@ const PLACEHOLDERS: Record<string, string> = {
 };
 
 export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
-  const columns = columnsFor(mode);
+  const columns = columnsFor(mode, rows);
   const setError = useViewerStore((s) => s.setError);
   const scene = useViewerStore((s) => s.scene);
   const select = useViewerStore((s) => s.select);
@@ -158,9 +164,9 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
   };
 
   const removeRow = (idx: number) => {
-    const removedSeq = String(rows[idx]?.seq ?? "").trim();
+    const removedId = rows[idx] ? rowElementId(rows[idx], mode) : "";
     onChange(rows.filter((_, i) => i !== idx));
-    if (removedSeq && selected === `A${removedSeq}`) select(null);
+    if (removedId && selected === removedId) select(null);
     void regenerate();
   };
 
@@ -233,6 +239,7 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
           <InputTable
             rows={rows}
             columns={columns}
+            mode={mode}
             selected={selected}
             selectedRowRef={selectedRowRef}
             diagBySeq={diagBySeq}
@@ -254,6 +261,7 @@ export function TableEditor({ mode, rows, onChange }: TableEditorProps) {
 function InputTable({
   rows,
   columns,
+  mode,
   selected,
   selectedRowRef,
   diagBySeq,
@@ -264,6 +272,7 @@ function InputTable({
 }: {
   rows: TableRow[];
   columns: string[];
+  mode: DesignMode;
   selected: string | null;
   selectedRowRef: React.RefObject<HTMLTableRowElement | null>;
   diagBySeq: Map<string, import("@flowcad/shared").Diagnostic[]>;
@@ -286,10 +295,11 @@ function InputTable({
       </thead>
       <tbody>
         {rows.map((row, rIdx) => {
-          const seqKey = String(row.seq ?? "").trim();
-          const diags = seqKey ? diagBySeq.get(seqKey) ?? [] : [];
+          const elId = rowElementId(row, mode);
+          const diagKey = rowDiagKey(row, mode);
+          const diags = diagKey ? diagBySeq.get(diagKey) ?? [] : [];
           const level = worstLevel(diags);
-          const isSelected = !!seqKey && selected === `A${seqKey}`;
+          const isSelected = !!elId && selected === elId;
           const partType = String(row.part_type ?? "").toLowerCase();
           const lengthAuto = ["elbow", "tee", "rect_elbow", "round_elbow", "rect_tee", "round_tee"].includes(partType);
           const isElbow = partType.includes("elbow");
@@ -306,7 +316,7 @@ function InputTable({
               key={rIdx}
               ref={isSelected ? selectedRowRef : undefined}
               title={tip || undefined}
-              onClick={() => seqKey && onSelect(`A${seqKey}`)}
+              onClick={() => elId && onSelect(elId)}
               className={rowClass}
             >
               {columns.map((c, cIdx) => {
@@ -334,7 +344,7 @@ function InputTable({
                 }
 
                 const computedLen = c === "length" && lengthAuto
-                  ? bom.find((b) => b.elementId === `A${seqKey}`)?.lengthMm
+                  ? bom.find((b) => b.elementId === elId)?.lengthMm
                   : undefined;
                 return (
                   <td key={c} className="border-b border-panelLight/50 p-0">

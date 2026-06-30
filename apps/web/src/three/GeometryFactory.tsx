@@ -11,7 +11,7 @@ import {
   Vector3,
 } from "three";
 import type { Side } from "three";
-import type { SceneElement } from "@flowcad/shared";
+import type { BranchSpec, ElementParams, SceneElement } from "@flowcad/shared";
 import { toThree } from "./coords";
 
 export interface ElementVisualProps {
@@ -105,7 +105,17 @@ export function ElementMesh(props: ElementVisualProps) {
         <PipeElbow {...props} />
       );
     case "tee":
-      return <TeeFitting {...props} />;
+    case "wye":
+    case "cross":
+    case "tap":
+    case "splitter":
+      return <BranchFitting {...props} />;
+    case "cap":
+      return element.params.width != null ? (
+        <RectDuctSegment {...props} />
+      ) : (
+        <TubeSegment {...props} />
+      );
     case "transition":
       return isOffsetElement(element) ? <OffsetFitting {...props} /> : <TransitionFitting {...props} />;
     case "valve":
@@ -261,35 +271,131 @@ function GoredRoundElbow(p: ElementVisualProps) {
   );
 }
 
-function TeeFitting(p: ElementVisualProps) {
-  const { params } = p.element;
-  const pos = useMemo(() => toThree(params.position!), [params.position]);
-  const radius = params.radius ?? 30;
-  const runLength = params.runLength ?? radius * 5;
-  const branchLength = params.branchLength ?? radius * 4;
+/**
+ * General multi-port fitting renderer driven by the v2 ``params.branches[]``
+ * contract. Serves tee/wye (a through-run + branch arms) and tap/cross/splitter
+ * (an inlet stub + branch arms), with each arm rendered in its own cross-section
+ * (rectangular box or round tube). Falls back to the legacy single
+ * ``branchDirection`` when no ``branches[]`` array is present.
+ */
+function BranchFitting(p: ElementVisualProps) {
+  const { params, kind } = p.element;
+  const pos = useMemo(() => toThree(params.position ?? [0, 0, 0]), [params.position]);
   const main = useMemo(
     () => toThreeDirection(params.mainDirection ?? params.direction ?? [1, 0, 0]),
     [params.mainDirection, params.direction],
   );
-  const branch = useMemo(
-    () => toThreeDirection(params.branchDirection ?? [0, 1, 0]),
-    [params.branchDirection],
+  const inDir = useMemo(
+    () => toThreeDirection(params.inDirection ?? params.mainDirection ?? params.direction ?? [1, 0, 0]),
+    [params.inDirection, params.mainDirection, params.direction],
   );
+  const radius = params.radius ?? 150;
+  const runLength = params.runLength ?? radius * 5;
+  const branchLength = params.branchLength ?? radius * 4;
+  const round = params.shape === "round" || (params.width == null && params.height == null);
+  const through = params.through ?? (kind === "tee" || kind === "wye");
+  const branches = params.branches ?? legacyBranches(params, branchLength);
+
   return (
     <group position={pos} {...interactionHandlers(p)} userData={p.element.userData}>
-      <LocalCylinder
-        p={p}
-        start={main.clone().multiplyScalar(-runLength / 2)}
-        end={main.clone().multiplyScalar(runLength / 2)}
-        radius={radius}
-      />
-      <LocalCylinder
-        p={p}
-        start={new Vector3(0, 0, 0)}
-        end={branch.clone().multiplyScalar(branchLength)}
-        radius={radius * 0.82}
-      />
+      {through ? (
+        <LocalDuct
+          p={p}
+          start={main.clone().multiplyScalar(-runLength / 2)}
+          end={main.clone().multiplyScalar(runLength / 2)}
+          round={round}
+          radius={radius}
+          width={params.width}
+          height={params.height}
+        />
+      ) : (
+        <LocalDuct
+          p={p}
+          start={inDir.clone().multiplyScalar(-branchLength / 2)}
+          end={new Vector3(0, 0, 0)}
+          round={round}
+          radius={radius}
+          width={params.width}
+          height={params.height}
+        />
+      )}
+      {branches.map((b, i) => {
+        const dir = toThreeDirection(b.direction);
+        const bRound = b.radius != null;
+        return (
+          <LocalDuct
+            key={i}
+            p={p}
+            start={new Vector3(0, 0, 0)}
+            end={dir.clone().multiplyScalar(b.length ?? branchLength)}
+            round={bRound}
+            radius={b.radius ?? radius * 0.82}
+            width={b.width ?? params.width}
+            height={b.height ?? params.height}
+          />
+        );
+      })}
     </group>
+  );
+}
+
+function legacyBranches(params: ElementParams, branchLength: number): BranchSpec[] {
+  if (!params.branchDirection) return [];
+  // The legacy round-tee path emits only `{radius}` (no `shape`/`width`), so gate
+  // the branch on the same round test the main run uses — otherwise a round tee's
+  // arm would drop its radius and fall back to a rectangular box.
+  const round = params.shape === "round" || (params.width == null && params.height == null);
+  return [
+    {
+      direction: params.branchDirection,
+      length: branchLength,
+      width: params.width,
+      height: params.height,
+      radius: round ? params.radius : undefined,
+    },
+  ];
+}
+
+/** A single rectangular (box) or round (cylinder) duct run between two local points. */
+function LocalDuct({
+  p,
+  start,
+  end,
+  round,
+  radius,
+  width,
+  height,
+}: {
+  p: ElementVisualProps;
+  start: Vector3;
+  end: Vector3;
+  round: boolean;
+  radius: number;
+  width?: number;
+  height?: number;
+}) {
+  const { length, mid, quat, rectQuat } = useMemo(() => {
+    const dir = new Vector3().subVectors(end, start);
+    return {
+      length: Math.max(dir.length(), 1),
+      mid: new Vector3().addVectors(start, end).multiplyScalar(0.5),
+      quat: new Quaternion().setFromUnitVectors(UP, dir.clone().normalize()),
+      rectQuat: rectQuaternion(dir),
+    };
+  }, [start, end]);
+  if (round) {
+    return (
+      <mesh position={mid} quaternion={quat}>
+        <cylinderGeometry args={[radius, radius, length, 24]} />
+        {StandardMaterial(p, 0.3, 0.55)}
+      </mesh>
+    );
+  }
+  return (
+    <mesh position={mid} quaternion={rectQuat}>
+      <boxGeometry args={[width ?? 200, length, height ?? 200]} />
+      {StandardMaterial(p, 0.2, 0.6)}
+    </mesh>
   );
 }
 
@@ -401,7 +507,7 @@ function TransitionFitting(p: ElementVisualProps) {
   const geometry = useMemo(() => buildTransitionGeometry(p.element), [p.element]);
   return (
     <mesh geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
-      {StandardMaterial(p, 0.25, 0.56)}
+      {StandardMaterial(p, 0.25, 0.56, DoubleSide)}
     </mesh>
   );
 }
@@ -647,11 +753,14 @@ function buildTransitionGeometry(element: SceneElement): BufferGeometry {
   const p = element.params;
   const start = toThree(p.start!);
   const end = toThree(p.end!);
-  const axis = new Vector3().subVectors(end, start).normalize();
-  const center = new Vector3().addVectors(start, end).multiplyScalar(0.5);
-  const right = perpendicularTo(axis);
-  const up = new Vector3().crossVectors(right, axis).normalize();
-  const count = 24;
+  const dir = new Vector3().subVectors(end, start);
+  if (dir.length() < 1e-6) dir.copy(X_AXIS);
+  dir.normalize();
+  // Use the same height-up section frame as the straight ducts (right = level,
+  // up = world-up) so the rectangular end aligns with the adjoining rect duct
+  // instead of being rolled to an arbitrary perpendicular.
+  const { right, up } = sectionFrameForDirection(dir);
+  const count = 32;
   const vertices: number[] = [];
   const indices: number[] = [];
 
@@ -670,12 +779,13 @@ function buildTransitionGeometry(element: SceneElement): BufferGeometry {
     count,
   );
 
-  for (const [ring, t] of [[from, -0.5], [to, 0.5]] as const) {
+  // Both rings are sampled CCW from +right, so index-matched lofting keeps the
+  // rect↔round walls from twisting across the body.
+  for (const [ring, base] of [[from, start], [to, end]] as const) {
     for (const [x, y] of ring) {
-      const point = center.clone()
-        .add(axis.clone().multiplyScalar(start.distanceTo(end) * t))
-        .add(right.clone().multiplyScalar(x))
-        .add(up.clone().multiplyScalar(y));
+      const point = base.clone()
+        .addScaledVector(right, x)
+        .addScaledVector(up, y);
       vertices.push(point.x, point.y, point.z);
     }
   }
@@ -696,7 +806,7 @@ function buildTransitionGeometry(element: SceneElement): BufferGeometry {
   return geometry;
 }
 
-function sectionRing(shape: "rectangular" | "round", width: number, height: number, radius: number, count: number): [number, number][] {
+function sectionRing(shape: "rectangular" | "round" | "oval" | "flat_oval", width: number, height: number, radius: number, count: number): [number, number][] {
   const points: [number, number][] = [];
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2;
