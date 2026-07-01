@@ -6,6 +6,7 @@ import { Toolbar } from "@/components/Toolbar";
 import { TableEditor } from "@/components/TableEditor";
 import { ExportBar } from "@/components/ExportBar";
 import { DetailPanel } from "@/components/DetailPanel";
+import { AddItemPanel } from "@/components/AddItemPanel";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { sampleRowsFor, type TableRow } from "@/lib/sampleData";
 import { useViewerStore } from "@/store/useViewerStore";
@@ -154,6 +155,7 @@ export default function Home() {
 
         <main className="relative flex-1 min-w-0">
           <Viewer />
+          <AddItemPanel />
           <DetailPanel />
         </main>
       </div>

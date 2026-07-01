@@ -42,6 +42,20 @@ function isOffsetElement(element: SceneElement): boolean {
 }
 
 /**
+ * A mitered elbow (straight legs meeting at a sharp mitre joint) vs a radius
+ * elbow (smooth swept arc). Both are ``kind: "elbow"`` with a rectangular
+ * section, so distinguish by the catalog part type / elbow style.
+ */
+function isMiterElbow(element: SceneElement): boolean {
+  const pt = partType(element);
+  const style = String(element.params.elbowStyle ?? "").toLowerCase();
+  return (
+    pt.includes("miter") || pt.includes("mitre") ||
+    style.includes("miter") || style.includes("mitre")
+  );
+}
+
+/**
  * Orientation for a rectangular section whose local axes are X=width, Y=length,
  * Z=height. Unlike ``setFromUnitVectors`` (which leaves the roll about the run
  * axis unpinned, so width/height appear swapped depending on heading), this pins
@@ -65,8 +79,37 @@ function rectQuaternion(dir: Vector3): Quaternion {
   );
 }
 
+/**
+ * Section frame (width=right, height=up) for a run, honouring an explicit
+ * ``sectionUp`` height axis when the backend supplies one (propagated along
+ * connectivity). Falls back to the height-up convention — and, for horizontal
+ * runs, an up hint that equals world-up reproduces ``rectQuaternion`` exactly,
+ * so existing horizontal geometry is unchanged.
+ */
+function frameFromUp(direction: Vector3, upHint: Vector3): { right: Vector3; up: Vector3 } {
+  const length = direction.length() > 1e-6 ? direction.clone().normalize() : X_AXIS.clone();
+  let up = upHint.clone().sub(length.clone().multiplyScalar(upHint.dot(length)));
+  if (up.length() < 1e-6) return sectionFrameForDirection(direction);
+  up.normalize();
+  const right = new Vector3().crossVectors(length, up).normalize();
+  up = new Vector3().crossVectors(right, length).normalize();
+  return { right, up };
+}
+
+/** Roll-pinned quaternion for a box, using ``sectionUp`` when present. */
+function rectQuaternionFor(dir: Vector3, sectionUp?: [number, number, number]): Quaternion {
+  if (!sectionUp) return rectQuaternion(dir);
+  const { right, up } = frameFromUp(dir, toThree(sectionUp));
+  const length = dir.length() > 1e-6 ? dir.clone().normalize() : X_AXIS.clone();
+  return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, length, up));
+}
+
 /** Position + orientation for a tube/box spanning start -> end. */
-function useSpan(start: [number, number, number], end: [number, number, number]) {
+function useSpan(
+  start: [number, number, number],
+  end: [number, number, number],
+  sectionUp?: [number, number, number],
+) {
   return useMemo(() => {
     const a = toThree(start);
     const b = toThree(end);
@@ -75,10 +118,11 @@ function useSpan(start: [number, number, number], end: [number, number, number])
     const mid = new Vector3().addVectors(a, b).multiplyScalar(0.5);
     const unit = dir.clone().normalize();
     const quat = new Quaternion().setFromUnitVectors(UP, unit);
-    // Rectangular sections need a roll-pinned frame (height up, width level).
-    const rectQuat = rectQuaternion(dir);
+    // Rectangular sections need a roll-pinned frame (height up, width level),
+    // inheriting the propagated section roll so faces line up through elbows.
+    const rectQuat = rectQuaternionFor(dir, sectionUp);
     return { length, mid, quat, rectQuat };
-  }, [start, end]);
+  }, [start, end, sectionUp]);
 }
 
 /**
@@ -100,7 +144,7 @@ export function ElementMesh(props: ElementVisualProps) {
       return partType(element) === "round_elbow" ? (
         <GoredRoundElbow {...props} />
       ) : element.params.width != null || element.params.height != null ? (
-        <DuctElbow {...props} />
+        isMiterElbow(element) ? <MiteredDuctElbow {...props} /> : <DuctElbow {...props} />
       ) : (
         <PipeElbow {...props} />
       );
@@ -225,7 +269,7 @@ function TubeSegment(p: ElementVisualProps) {
 
 function RectDuctSegment(p: ElementVisualProps) {
   const { params } = p.element;
-  const span = useSpan(params.start!, params.end!);
+  const span = useSpan(params.start!, params.end!, params.sectionUp);
   return (
     <mesh
       position={span.mid}
@@ -307,6 +351,7 @@ function BranchFitting(p: ElementVisualProps) {
           radius={radius}
           width={params.width}
           height={params.height}
+          sectionUp={params.sectionUp}
         />
       ) : (
         <LocalDuct
@@ -317,6 +362,7 @@ function BranchFitting(p: ElementVisualProps) {
           radius={radius}
           width={params.width}
           height={params.height}
+          sectionUp={params.sectionUp}
         />
       )}
       {branches.map((b, i) => {
@@ -332,6 +378,7 @@ function BranchFitting(p: ElementVisualProps) {
             radius={b.radius ?? radius * 0.82}
             width={b.width ?? params.width}
             height={b.height ?? params.height}
+            sectionUp={params.sectionUp}
           />
         );
       })}
@@ -365,6 +412,7 @@ function LocalDuct({
   radius,
   width,
   height,
+  sectionUp,
 }: {
   p: ElementVisualProps;
   start: Vector3;
@@ -373,6 +421,7 @@ function LocalDuct({
   radius: number;
   width?: number;
   height?: number;
+  sectionUp?: [number, number, number];
 }) {
   const { length, mid, quat, rectQuat } = useMemo(() => {
     const dir = new Vector3().subVectors(end, start);
@@ -380,9 +429,11 @@ function LocalDuct({
       length: Math.max(dir.length(), 1),
       mid: new Vector3().addVectors(start, end).multiplyScalar(0.5),
       quat: new Quaternion().setFromUnitVectors(UP, dir.clone().normalize()),
-      rectQuat: rectQuaternion(dir),
+      // The BranchFitting group is only translated (not rotated), so the world
+      // ``sectionUp`` applies directly to each local arm.
+      rectQuat: rectQuaternionFor(dir, sectionUp),
     };
-  }, [start, end]);
+  }, [start, end, sectionUp]);
   if (round) {
     return (
       <mesh position={mid} quaternion={quat}>
@@ -496,6 +547,16 @@ function DamperFitting(p: ElementVisualProps) {
 function DuctElbow(p: ElementVisualProps) {
   const pos = useMemo(() => toThree(p.element.params.position!), [p.element.params.position]);
   const geometry = useMemo(() => buildDuctElbowGeometry(p.element), [p.element]);
+  return (
+    <mesh position={pos} geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
+      {StandardMaterial(p, 0.22, 0.58, DoubleSide)}
+    </mesh>
+  );
+}
+
+function MiteredDuctElbow(p: ElementVisualProps) {
+  const pos = useMemo(() => toThree(p.element.params.position!), [p.element.params.position]);
+  const geometry = useMemo(() => buildMiteredElbowGeometry(p.element), [p.element]);
   return (
     <mesh position={pos} geometry={geometry} {...interactionHandlers(p)} userData={p.element.userData}>
       {StandardMaterial(p, 0.22, 0.58, DoubleSide)}
@@ -677,6 +738,9 @@ function buildDuctElbowGeometry(element: SceneElement): BufferGeometry {
   const height = params.height ?? 300;
   const halfW = width / 2;
   const halfH = height / 2;
+  // The incoming section's height axis (propagated by the backend). Drives which
+  // swept axis carries W vs H so the elbow's faces match the ducts it joins.
+  const inUp = params.sectionUp ? toThreeDirection(params.sectionUp) : UP;
   // Tangent length = distance from the theoretical corner to where the backend
   // trims the adjoining straights, so the elbow meets them exactly.
   const tangent = params.bendRadius ?? Math.max(width, height);
@@ -687,14 +751,15 @@ function buildDuctElbowGeometry(element: SceneElement): BufferGeometry {
   const bendCheck = new Vector3().crossVectors(u, v);
 
   // Degenerate (collinear legs): fall back to a straight box through the corner.
+  // Use the shared height-up section frame so it reads identically to a straight
+  // duct (width level, height vertical) rather than an arbitrary roll.
   if (bendCheck.length() < 1e-6 || Math.sin(half) < 1e-3) {
     const a = u.clone().multiplyScalar(tangent);
     const b = v.clone().multiplyScalar(tangent);
     const dir = new Vector3().subVectors(b, a).normalize();
-    const inPlane = perpendicularTo(dir);
-    const outOfPlane = new Vector3().crossVectors(dir, inPlane).normalize();
+    const { right, up } = frameFromUp(dir, inUp);
     return buildSweptRect(
-      [{ center: a, inPlane, outOfPlane }, { center: b, inPlane, outOfPlane }],
+      [{ center: a, inPlane: right, outOfPlane: up }, { center: b, inPlane: right, outOfPlane: up }],
       halfW,
       halfH,
     );
@@ -719,7 +784,94 @@ function buildDuctElbowGeometry(element: SceneElement): BufferGeometry {
       outOfPlane: axis,
     });
   }
-  return buildSweptRect(rings, halfW, halfH);
+
+  // Map W/H onto the swept axes so the section's height follows the incoming
+  // ``sectionUp``. The out-of-plane axis (bend normal) is the section axis the
+  // duct rotates *about*: when it aligns with the incoming height (plan turn) it
+  // carries H; otherwise the in-plane radial carries H (elevation turn). Keying
+  // off the propagated up (not world-up) keeps the elbow consistent with the
+  // duct before it even when that run is itself rolled/vertical.
+  const heightOnAxis = Math.abs(axis.dot(inUp)) >= Math.abs(rings[0].inPlane.dot(inUp));
+  // buildSweptRect places its 2nd arg along outOfPlane and 1st along inPlane.
+  return heightOnAxis
+    ? buildSweptRect(rings, halfW, halfH)
+    : buildSweptRect(rings, halfH, halfW);
+}
+
+/**
+ * A mitred rectangular elbow — two straight legs meeting at a sharp mitre joint
+ * (bisector plane), unlike the swept-arc radius elbow. Each leg is a straight
+ * box from the trimmed connection face to the corner; the legs overlap inside
+ * the corner so their union reads as a clean mitre. Each leg carries its own
+ * ``sectionUp``-consistent frame (the outgoing leg's up is the incoming up
+ * rotated about the bend normal), so both faces line up with the ducts they join
+ * exactly like the radius elbow does.
+ */
+function buildMiteredElbowGeometry(element: SceneElement): BufferGeometry {
+  const params = element.params;
+  const inDir = toThreeDirection(params.inDirection ?? [-1, 0, 0]); // into the corner
+  const u = inDir.clone().negate(); // outward along the incoming leg
+  const v = toThreeDirection(params.outDirection ?? [1, 0, 0]); // outward along outgoing leg
+  const width = params.width ?? 300;
+  const height = params.height ?? 300;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const tangent = params.bendRadius ?? Math.max(width, height);
+  const inUp = params.sectionUp ? toThreeDirection(params.sectionUp) : UP;
+
+  // Outgoing leg's height axis = incoming up rotated about the bend normal by the
+  // turn angle (mirrors the backend section-frame propagation), so the outlet
+  // face matches the next duct.
+  const bendNormal = new Vector3().crossVectors(inDir, v);
+  const turn = Math.acos(Math.max(-1, Math.min(1, inDir.dot(v))));
+  const outUp = inUp.clone();
+  if (bendNormal.length() > 1e-6 && turn > 1e-6) {
+    outUp.applyAxisAngle(bendNormal.clone().normalize(), turn);
+  }
+
+  const legIn = frameFromUp(u, inUp);
+  const legOut = frameFromUp(v, outUp);
+  const corner = new Vector3(0, 0, 0);
+  const inGeom = buildSweptRect(
+    [
+      { center: u.clone().multiplyScalar(tangent), inPlane: legIn.right, outOfPlane: legIn.up },
+      { center: corner, inPlane: legIn.right, outOfPlane: legIn.up },
+    ],
+    halfW,
+    halfH,
+  );
+  const outGeom = buildSweptRect(
+    [
+      { center: corner, inPlane: legOut.right, outOfPlane: legOut.up },
+      { center: v.clone().multiplyScalar(tangent), inPlane: legOut.right, outOfPlane: legOut.up },
+    ],
+    halfW,
+    halfH,
+  );
+  return mergeGeometries([inGeom, outGeom]);
+}
+
+/** Concatenate indexed BufferGeometries (position only) into one, re-based. */
+function mergeGeometries(geometries: BufferGeometry[]): BufferGeometry {
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const g of geometries) {
+    const pos = g.getAttribute("position");
+    for (let i = 0; i < pos.count; i++) {
+      vertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+    }
+    const idx = g.getIndex();
+    if (idx) {
+      for (let i = 0; i < idx.count; i++) indices.push(idx.getX(i) + offset);
+    }
+    offset += pos.count;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function buildOffsetGeometry(element: SceneElement): BufferGeometry {
@@ -742,8 +894,9 @@ function buildOffsetGeometry(element: SceneElement): BufferGeometry {
 
   const halfW = (p.fromWidth ?? p.width ?? p.toWidth ?? 200) / 2;
   const halfH = (p.fromHeight ?? p.height ?? p.toHeight ?? 200) / 2;
+  const upHint = p.sectionUp ? toThree(p.sectionUp) : UP;
   const rings = offsetRings(centers, main).map((r) => {
-    const frame = sectionFrameForDirection(r.tangent);
+    const frame = frameFromUp(r.tangent, upHint);
     return { center: r.center, inPlane: frame.right, outOfPlane: frame.up };
   });
   return buildSweptRect(rings, halfW, halfH);
@@ -756,10 +909,10 @@ function buildTransitionGeometry(element: SceneElement): BufferGeometry {
   const dir = new Vector3().subVectors(end, start);
   if (dir.length() < 1e-6) dir.copy(X_AXIS);
   dir.normalize();
-  // Use the same height-up section frame as the straight ducts (right = level,
-  // up = world-up) so the rectangular end aligns with the adjoining rect duct
+  // Use the same section frame as the straight ducts, honouring the propagated
+  // ``sectionUp`` so the rectangular end aligns with the adjoining rect duct
   // instead of being rolled to an arbitrary perpendicular.
-  const { right, up } = sectionFrameForDirection(dir);
+  const { right, up } = frameFromUp(dir, p.sectionUp ? toThree(p.sectionUp) : UP);
   const count = 32;
   const vertices: number[] = [];
   const indices: number[] = [];

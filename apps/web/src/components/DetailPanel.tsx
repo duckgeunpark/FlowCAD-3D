@@ -50,6 +50,9 @@ const PART_TYPE_LABEL: Record<string, string> = {
 
 export function DetailPanel() {
   const { scene, selectedId, select, rotateFitting } = useViewerStore();
+  // Additional (non-basic) info is collapsed by default; the user expands it
+  // only when they need spec/material/joint details beyond the core dimensions.
+  const [showMore, setShowMore] = useState(false);
   const element = scene?.elements.find((e) => e.id === selectedId);
   if (!element) return null;
 
@@ -67,55 +70,82 @@ export function DetailPanel() {
         <button onClick={() => select(null)} className="text-gray-500 hover:text-white">x</button>
       </div>
       <div className="p-3 space-y-1.5 text-xs">
+        {/* --- 기본 정보 (always visible) --- */}
         {!isError && <Row label="아이템" value={element.itemNo || "-"} />}
         <Row label="종류" value={kindLabel(element)} />
-        <Row label="ID" value={element.id} />
         {!isError && <DimensionEditor element={element} />}
         {!isError && <LengthEditor element={element} />}
-        {Object.entries(element.userData).map(([k, v]) => (
-          <Row key={k} label={LABELS[k] ?? k} value={v || "-"} isHighlight={k === "error"} />
-        ))}
-        {canRotate && (
-          <div className="pt-2 mt-2 border-t border-panelLight">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-gray-400">회전</span>
-              <span className="font-mono text-gray-200">
-                {Math.round(element.params.rollDeg ?? 0)}도
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1">
-              <button
-                onClick={() => rotateFitting(element.id, -rotateStep)}
-                className="px-2 py-1 rounded bg-panelLight hover:bg-[#222b37]"
-              >
-                -{rotateStep}
-              </button>
-              <button
-                onClick={() => rotateFitting(element.id, rotateStep)}
-                className="px-2 py-1 rounded bg-panelLight hover:bg-[#222b37]"
-              >
-                +{rotateStep}
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="pt-2 mt-2 border-t border-panelLight">
-          <div className="text-gray-400 mb-1">조인트</div>
-          <div className="space-y-1">
-            {element.joints.length === 0 ? (
-              <div className="text-gray-500">-</div>
-            ) : (
-              element.joints.map((joint) => (
-                <div key={joint.id} className="flex justify-between gap-2 rounded bg-black/20 px-2 py-1">
-                  <span className="font-mono text-gray-200">{joint.no}</span>
-                  <span className={joint.open ? "text-emerald-300" : "text-gray-400"}>
-                    {joint.role}{joint.open ? " 열림" : ""}
-                  </span>
+
+        {isError ? (
+          /* 연결 경고: 부가 정보를 접지 않고 그대로 노출 */
+          <>
+            <Row label="ID" value={element.id} />
+            {Object.entries(element.userData).map(([k, v]) => (
+              <Row key={k} label={LABELS[k] ?? k} value={v || "-"} isHighlight={k === "error"} />
+            ))}
+          </>
+        ) : (
+          <>
+            {/* --- 부가 정보 토글 (기본 접힘) --- */}
+            <button
+              onClick={() => setShowMore((v) => !v)}
+              className="w-full flex items-center justify-between pt-2 mt-2 border-t border-panelLight text-gray-400 hover:text-gray-200"
+            >
+              <span>부가 정보</span>
+              <span className="text-[11px] text-gray-500">{showMore ? "접기 ▲" : "펼치기 ▼"}</span>
+            </button>
+
+            {showMore && (
+              <div className="space-y-1.5">
+                <Row label="ID" value={element.id} />
+                {Object.entries(element.userData).map(([k, v]) => (
+                  <Row key={k} label={LABELS[k] ?? k} value={v || "-"} isHighlight={k === "error"} />
+                ))}
+                {canRotate && (
+                  <div className="pt-2 mt-2 border-t border-panelLight">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-gray-400">회전</span>
+                      <span className="font-mono text-gray-200">
+                        {Math.round(element.params.rollDeg ?? 0)}도
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        onClick={() => rotateFitting(element.id, -rotateStep)}
+                        className="px-2 py-1 rounded bg-panelLight hover:bg-[#222b37]"
+                      >
+                        -{rotateStep}
+                      </button>
+                      <button
+                        onClick={() => rotateFitting(element.id, rotateStep)}
+                        className="px-2 py-1 rounded bg-panelLight hover:bg-[#222b37]"
+                      >
+                        +{rotateStep}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="pt-2 mt-2 border-t border-panelLight">
+                  <div className="text-gray-400 mb-1">조인트</div>
+                  <div className="space-y-1">
+                    {element.joints.length === 0 ? (
+                      <div className="text-gray-500">-</div>
+                    ) : (
+                      element.joints.map((joint) => (
+                        <div key={joint.id} className="flex justify-between gap-2 rounded bg-black/20 px-2 py-1">
+                          <span className="font-mono text-gray-200">{joint.no}</span>
+                          <span className={joint.open ? "text-emerald-300" : "text-gray-400"}>
+                            {joint.role}{joint.open ? " 열림" : ""}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-              ))
+              </div>
             )}
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

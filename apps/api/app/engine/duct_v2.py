@@ -195,6 +195,9 @@ class _El:
     # Trimmed faces (filled in pass 2).
     start_face: Vec3 = field(default_factory=Vec3)
     end_face: Vec3 = field(default_factory=Vec3)
+    # Cross-section "up" (height) axis, propagated along connectivity (pass 3) so
+    # adjacent faces share one roll instead of each guessing a vertical fallback.
+    sec_up: Vec3 = field(default_factory=Vec3)
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +252,11 @@ class _V2Resolver:
             else:
                 el.start_face = el.origin
                 el.end_face = el.end
+
+        # Pass 3: propagate the cross-section roll along the element graph so
+        # every face shares one "up" (height) axis — the fix for vertical runs
+        # where no global up rule exists (elbow-up → straight, etc.).
+        self._propagate_section_frames(elements, by_id)
 
         for el in elements:
             builder.add(self._to_scene_element(el, by_id))
@@ -480,15 +488,57 @@ class _V2Resolver:
             return
         unit = span.scaled(1.0 / length)
 
-        start_clear = self._neighbor_clearance(el, by_id.get(el.from_id), at_start=True)
-        end_clear = self._neighbor_clearance(el, by_id.get(el.to_id), at_start=False)
-        total = start_clear + end_clear
-        if total > length * 0.9 and total > 0:
-            scale = (length * 0.9) / total
-            start_clear *= scale
-            end_clear *= scale
-        el.start_face = start + unit.scaled(start_clear)
-        el.end_face = end - unit.scaled(end_clear)
+        # Trim each end to the neighbouring fitting's *actual* connection face,
+        # projected onto this segment's centerline. Correct whether the segment
+        # was authored to the fitting's centerline (corner, as in uploaded sheets)
+        # or already to its face (the in-viewer add flow) — so neither double-trims
+        # into a gap nor leaves the run floating away from the elbow/tee.
+        s = self._trim_param(el, by_id.get(el.from_id), start, unit, at_start=True)
+        e = self._trim_param(el, by_id.get(el.to_id), end, unit, at_start=False)
+        # Keep a minimum visible sliver if the two faces cross past each other.
+        if e - s < length * 0.1:
+            mid = (s + e) / 2.0
+            s = mid - length * 0.05
+            e = mid + length * 0.05
+        el.start_face = start + unit.scaled(s)
+        el.end_face = start + unit.scaled(e)
+
+    def _trim_param(
+        self, seg: _El, neighbor: _El | None, endpoint: Vec3, unit: Vec3, at_start: bool
+    ) -> float:
+        """Distance along ``seg`` (from ``seg.origin``) of the trimmed face at one
+        end. Projects the neighbour fitting's connection face onto the centerline;
+        falls back to the legacy clearance-from-endpoint for non-corner neighbours."""
+        endpoint_t = _dot(endpoint - seg.origin, unit)
+        if neighbor is None or neighbor.kind not in _CORNER_KINDS:
+            return endpoint_t
+        clear = self._neighbor_clearance(seg, neighbor, at_start=at_start)
+        port = self._neighbor_port_dir(seg, neighbor)
+        if port is None:
+            # Un-special-cased corner kind: keep the legacy pull-back distance.
+            return endpoint_t + clear if at_start else endpoint_t - clear
+        face_pos = neighbor.origin + port.scaled(clear)
+        return _dot(face_pos - seg.origin, unit)
+
+    @staticmethod
+    def _neighbor_port_dir(seg: _El, neighbor: _El) -> Vec3 | None:
+        """Unit direction from ``neighbor``'s centerline vertex toward the face it
+        shares with ``seg`` (elbow legs, tee run/branch). ``None`` when unknown."""
+        if neighbor.kind is ComponentKind.ELBOW:
+            if neighbor.to_id == seg.eid:
+                return neighbor.out_dir
+            if neighbor.from_id == seg.eid:
+                return neighbor.in_dir.scaled(-1)
+            return None
+        if neighbor.kind in (ComponentKind.TEE, ComponentKind.WYE):
+            if neighbor.branch_id == seg.eid and neighbor.branch_dirs:
+                return neighbor.branch_dirs[0]
+            if neighbor.from_id == seg.eid:
+                return neighbor.out_dir.scaled(-1)
+            if neighbor.to_id == seg.eid:
+                return neighbor.out_dir
+            return None
+        return None
 
     def _neighbor_clearance(
         self, seg: _El, neighbor: _El | None, at_start: bool
@@ -511,6 +561,15 @@ class _V2Resolver:
 
     # -- scene element emission ----------------------------------------------
     def _to_scene_element(self, el: _El, by_id: dict[str, _El]) -> SceneElement:
+        element = self._dispatch_element(el)
+        # Hand the propagated roll to the renderer for rectangular sections so its
+        # box/sweep frame matches the neighbouring faces. Round sections are
+        # rotationally symmetric and ignore it.
+        if el.section.shape is not DuctShape.ROUND and el.sec_up.length() > 1e-9:
+            element.params["sectionUp"] = list(el.sec_up.as_tuple())
+        return element
+
+    def _dispatch_element(self, el: _El) -> SceneElement:
         if el.is_segment:
             return self._segment_element(el)
         if el.kind is ComponentKind.ELBOW:
@@ -526,6 +585,39 @@ class _V2Resolver:
         if el.kind in (ComponentKind.VALVE, ComponentKind.DAMPER):
             return self._inline_element(el)
         return self._segment_element(el)
+
+    # -- section-frame propagation -------------------------------------------
+    def _propagate_section_frames(
+        self, elements: list[_El], by_id: dict[str, _El]
+    ) -> None:
+        """Assign each element a cross-section ``sec_up`` (height axis).
+
+        Roots (no resolved parent) seed from world-up projected onto their run.
+        Children inherit the parent's *outgoing* up, parallel-transported across
+        the joint — so a vertical run picks up the horizontal neighbour's roll
+        instead of an arbitrary fallback. Elbows rotate the up about their bend
+        normal so the outgoing face (and the next element) stays consistent.
+        """
+        resolved: dict[str, Vec3] = {}
+        # Iterate enough times to resolve any authored ordering / chain depth.
+        for _ in range(len(elements) + 1):
+            changed = False
+            for el in elements:
+                if el.eid in resolved:
+                    continue
+                parent = by_id.get(el.from_id) if el.from_id else None
+                if parent is None or parent.eid == el.eid:
+                    resolved[el.eid] = _default_up(el.in_dir)
+                    changed = True
+                elif parent.eid in resolved:
+                    carried = _out_up(parent, resolved[parent.eid])
+                    transported = _transport(carried, parent.out_dir, el.in_dir)
+                    resolved[el.eid] = _orthonormal_up(transported, el.in_dir)
+                    changed = True
+            if not changed:
+                break
+        for el in elements:
+            el.sec_up = resolved.get(el.eid) or _default_up(el.in_dir)
 
     def _segment_element(self, el: _El) -> SceneElement:
         sec = el.section
@@ -844,3 +936,77 @@ def _elbow_arc_length(in_dir: Vec3, out_dir: Vec3, bend: float) -> float:
 
 def _dot(a: Vec3, b: Vec3) -> float:
     return a.x * b.x + a.y * b.y + a.z * b.z
+
+
+def _cross(a: Vec3, b: Vec3) -> Vec3:
+    return Vec3(
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    )
+
+
+def _rotate(v: Vec3, axis: Vec3, angle: float) -> Vec3:
+    """Rodrigues rotation of ``v`` about the unit ``axis`` by ``angle`` radians."""
+    if axis.length() <= 1e-9 or abs(angle) <= 1e-12:
+        return v
+    k = _norm(axis)
+    c = math.cos(angle)
+    s = math.sin(angle)
+    return (
+        v.scaled(c)
+        + _cross(k, v).scaled(s)
+        + k.scaled(_dot(k, v) * (1.0 - c))
+    )
+
+
+# Engineering world up (z is up; see the module docstring & coords bridge).
+_WORLD_UP = Vec3(0.0, 0.0, 1.0)
+_WORLD_NORTH = Vec3(0.0, 1.0, 0.0)
+
+
+def _default_up(direction: Vec3) -> Vec3:
+    """Seed section up for a root run: world-up projected onto the run's normal
+    plane; for a vertical run (no unique up) fall back to a stable horizontal."""
+    d = _norm(direction)
+    for candidate in (_WORLD_UP, _WORLD_NORTH, Vec3(1.0, 0.0, 0.0)):
+        proj = candidate - d.scaled(_dot(candidate, d))
+        if proj.length() > 1e-6:
+            return _norm(proj)
+    return Vec3(1.0, 0.0, 0.0)
+
+
+def _orthonormal_up(up: Vec3, direction: Vec3) -> Vec3:
+    """Re-project ``up`` perpendicular to ``direction`` (keeps it a valid height
+    axis after transport); fall back to the default seed if it degenerates."""
+    d = _norm(direction)
+    proj = up - d.scaled(_dot(up, d))
+    if proj.length() <= 1e-6:
+        return _default_up(direction)
+    return _norm(proj)
+
+
+def _out_up(el: _El, in_up: Vec3) -> Vec3:
+    """The section up leaving ``el``. Straights keep it; an elbow rotates it about
+    its bend normal so the outgoing face's roll follows the turn."""
+    if el.kind is ComponentKind.ELBOW:
+        normal = _cross(el.in_dir, el.out_dir)
+        if normal.length() <= 1e-9:
+            return in_up
+        return _norm(_rotate(in_up, normal, _turn_angle(el.in_dir, el.out_dir)))
+    return in_up
+
+
+def _transport(up: Vec3, from_dir: Vec3, to_dir: Vec3) -> Vec3:
+    """Parallel-transport ``up`` across a joint whose run turns ``from_dir`` →
+    ``to_dir`` (minimal rotation). Identity when the directions are collinear."""
+    f = _norm(from_dir)
+    t = _norm(to_dir)
+    axis = _cross(f, t)
+    if axis.length() <= 1e-9:
+        return up
+    return _rotate(up, axis, _turn_angle(f, t))
+
+
+def _turn_angle(a: Vec3, b: Vec3) -> float:
+    return math.acos(max(-1.0, min(1.0, _dot(_norm(a), _norm(b)))))

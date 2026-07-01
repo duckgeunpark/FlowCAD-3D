@@ -51,6 +51,10 @@ export interface ElementParams {
   branchDirection?: [number, number, number];
   radius?: number;
   bendRadius?: number;
+  /** Cross-section "up" (height) axis, propagated along connectivity by the v2
+   * engine so a rectangular element's roll matches its neighbours' faces — the
+   * fix for vertical runs where there is no global up convention. */
+  sectionUp?: [number, number, number];
   elbowStyle?: string;
   gores?: number;
   width?: number;
